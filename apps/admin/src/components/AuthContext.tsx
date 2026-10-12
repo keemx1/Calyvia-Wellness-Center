@@ -101,18 +101,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
-        // Staging token fallback bypass verification
+        // Legacy staging tokens are never trusted: purge and require real authentication
         if (session.token === 'staging-auth-token-local') {
-          const now = Date.now();
-          if (!session.expiresAt || now < session.expiresAt) {
-            if (isMounted) {
-              setUser(session.user);
-              setToken(session.token);
-            }
-          } else {
-            localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(STORAGE_KEY);
+          if (isMounted) {
+            setUser(null);
+            setToken(null);
+            setIsLoading(false);
           }
-          if (isMounted) setIsLoading(false);
           return;
         }
 
@@ -158,19 +154,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           }
         } catch {
-          // Network unreachable / offline fallback: keep cached session if within expiration window
-          const now = Date.now();
-          if (!session.expiresAt || now < session.expiresAt) {
-            if (isMounted) {
-              setUser(session.user);
-              setToken(session.token);
-            }
-          } else {
-            localStorage.removeItem(STORAGE_KEY);
-            if (isMounted) {
-              setUser(null);
-              setToken(null);
-            }
+          // Fail closed: without live server verification no cached session is trusted
+          localStorage.removeItem(STORAGE_KEY);
+          if (isMounted) {
+            setUser(null);
+            setToken(null);
           }
         }
       } catch (err) {
@@ -282,46 +270,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsLoading(false);
       return { success: false, error: 'Malformed authentication response received.' };
     } catch (err: any) {
-      console.warn('Primary API authentication request failed, evaluating offline verification:', err);
-
-      // Offline / API Connection Fallback for development & staging environments
-      const normalizedEmail = email.trim().toLowerCase();
-      
-      const KNOWN_STAGING_USERS: Record<string, { fullName: string; role: UserRole; dept: string; title: string }> = {
-        'admin@calyviawellness.co.ke': { fullName: 'Dr. Antony Baraka', role: UserRole.SUPER_ADMIN, dept: 'Administration', title: 'Medical Director & Administrator' },
-        'director@calyviawellness.co.ke': { fullName: 'Dr. Margaret Nduta', role: UserRole.MEDICAL_DIRECTOR, dept: 'Clinical Operations', title: 'Medical Director' },
-        'doctor@calyviawellness.co.ke': { fullName: 'Dr. Faith Mwangi', role: UserRole.DOCTOR_PSYCHIATRIST, dept: 'Psychiatry & Detox', title: 'Consultant Psychiatrist' },
-        'nurse@calyviawellness.co.ke': { fullName: 'Nurse Beatrice Wanjiku', role: UserRole.NURSE, dept: 'Inpatient Nursing', title: 'Senior Psychiatric Nurse' },
-        'counsellor@calyviawellness.co.ke': { fullName: 'David Ochieng', role: UserRole.COUNSELLOR, dept: 'Psychology', title: 'Lead Addiction Counsellor' },
-        'pharmacist@calyviawellness.co.ke': { fullName: 'Mary Njeri', role: UserRole.PHARMACIST, dept: 'Dispensary', title: 'Clinical Pharmacist' },
-        'reception@calyviawellness.co.ke': { fullName: 'Grace Achieng', role: UserRole.ADMISSIONS_FRONT_DESK, dept: 'Admissions & Intake', title: 'Admissions Officer' },
-        'finance@calyviawellness.co.ke': { fullName: 'Peter Kimani', role: UserRole.FINANCE_BILLING, dept: 'Billing & Cashier', title: 'Cashier & Billing Officer' },
-      };
-
-      if (KNOWN_STAGING_USERS[normalizedEmail] && (password === 'Clinical#2026' || password === 'Calyvia#2026')) {
-        const profile = KNOWN_STAGING_USERS[normalizedEmail];
-        const authUser: AuthenticatedUser = {
-          id: `staging-${normalizedEmail}`,
-          email: normalizedEmail,
-          fullName: profile.fullName,
-          role: profile.role,
-          department: profile.dept,
-          jobTitle: profile.title,
-        };
-
-        const session: StoredSession = {
-          user: authUser,
-          token: 'staging-auth-token-local',
-          expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-        };
-
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-        setUser(authUser);
-        setToken(session.token);
-        setIsLoading(false);
-        return { success: true };
-      }
-
+      console.warn('Primary API authentication request failed:', err);
       setIsLoading(false);
       return {
         success: false,
