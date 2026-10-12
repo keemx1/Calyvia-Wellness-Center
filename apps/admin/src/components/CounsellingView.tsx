@@ -258,9 +258,9 @@ export const CounsellingView: React.FC<CounsellingViewProps> = ({ token, apiUrl 
 
       {/* Log Session Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-lg bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Log Therapy Session</h3>
               <button
                 onClick={() => setIsModalOpen(false)}

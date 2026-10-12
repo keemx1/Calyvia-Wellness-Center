@@ -54,10 +54,17 @@ import {
   Zap,
   ShieldAlert,
   Loader2,
+  Key,
+  Edit3,
+  UserPlus,
+  Eye,
+  EyeOff,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { useAuth } from '../components/AuthContext';
 import { SignInPage } from '../components/SignInPage';
-import { canAccessModule, getDefaultModuleForRole, ROLE_DISPLAY_NAMES } from '@calyvia/shared';
+import { canAccessModule, getDefaultModuleForRole, ROLE_DISPLAY_NAMES, UserRole } from '@calyvia/shared';
 import { FamilyManagementView } from '../components/FamilyManagementView';
 import { CounsellingView } from '../components/CounsellingView';
 import { DocumentsView } from '../components/DocumentsView';
@@ -68,6 +75,7 @@ import { IncidentsView } from '../components/IncidentsView';
 import { ReferralsView } from '../components/ReferralsView';
 import { CommunicationView } from '../components/CommunicationView';
 import { AutomationView } from '../components/AutomationView';
+import { BottomNav } from '../components/BottomNav';
 
 const MODULE_TITLES: Record<string, string> = {
   dashboard: 'Management Dashboard',
@@ -105,6 +113,31 @@ export default function AdminDashboardPage() {
   const [activeModule, setActiveModule] = useState<string>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+
+  // Initialize and persist user's explicit desktop sidebar collapse preference
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('calyvia_sidebar_collapsed');
+      if (saved !== null) {
+        setIsSidebarCollapsed(saved === 'true');
+      }
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, []);
+
+  const handleToggleSidebarCollapse = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('calyvia_sidebar_collapsed', String(next));
+      } catch {
+        // Ignore storage restrictions
+      }
+      return next;
+    });
+  }, []);
+
   const [trendView, setTrendView] = useState<'weekly' | 'monthly'>('weekly');
 
   // Profile Edit Form State
@@ -155,114 +188,331 @@ export default function AdminDashboardPage() {
   const [patientStatusFilter, setPatientStatusFilter] = useState<string>('ALL');
   const [activeModal, setActiveModal] = useState<string | null>(null);
 
-  // Pending Employee Authorizations State
-  const [pendingEmployees, setPendingEmployees] = useState<Array<{
-    id: string;
-    email: string;
-    fullName: string;
-    phone: string;
-    role: string;
-    requestedRole: string;
-    approvalStatus: string;
-    createdAt: string;
-    staffProfile?: {
-      department: string;
-      jobTitle: string;
-      licenseNumber?: string;
-      licenseBoard?: string;
-    } | null;
-  }>>([]);
-  const [loadingPending, setLoadingPending] = useState<boolean>(false);
-  const [approvalActionLoading, setApprovalActionLoading] = useState<string | null>(null);
-  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
-  const [actionErrorMsg, setActionErrorMsg] = useState<string | null>(null);
-  const [roleSelections, setRoleSelections] = useState<Record<string, string>>({});
+  // Admin-Controlled Staff Account Management State
+  const [staffAccounts, setStaffAccounts] = useState<Array<any>>([]);
+  const [loadingStaffAccounts, setLoadingStaffAccounts] = useState<boolean>(false);
+  const [staffSearchQuery, setStaffSearchQuery] = useState<string>('');
+  const [staffDeptFilter, setStaffDeptFilter] = useState<string>('ALL');
+  const [staffRoleFilter, setStaffRoleFilter] = useState<string>('ALL');
+  const [staffStatusFilter, setStaffStatusFilter] = useState<string>('ALL');
+  const [staffActionFeedback, setStaffActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchPendingEmployees = useCallback(async () => {
-    if (!token || (user?.role !== 'SUPER_ADMIN' && user?.role !== 'FACILITY_ADMIN')) return;
-    setLoadingPending(true);
+  // Modal Dialog States
+  const [isCreateStaffOpen, setIsCreateStaffOpen] = useState<boolean>(false);
+  const [isEditStaffOpen, setIsEditStaffOpen] = useState<boolean>(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(false);
+  const [selectedStaffUser, setSelectedStaffUser] = useState<any | null>(null);
+
+  // Create Staff Form State
+  const [createStaffForm, setCreateStaffForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    department: 'Inpatient Nursing',
+    jobTitle: '',
+    role: 'NURSE',
+    initialPassword: '',
+    mustChangePassword: true,
+    status: 'ACTIVE' as 'ACTIVE' | 'SUSPENDED',
+    licenseNumber: '',
+    licenseBoard: '',
+    licenseExpiryDate: '',
+  });
+  const [showCreatePassword, setShowCreatePassword] = useState<boolean>(false);
+  const [creatingStaff, setCreatingStaff] = useState<boolean>(false);
+  const [createStaffError, setCreateStaffError] = useState<string | null>(null);
+
+  // Edit Staff Form State
+  const [editStaffForm, setEditStaffForm] = useState({
+    fullName: '',
+    phone: '',
+    department: '',
+    jobTitle: '',
+    role: '',
+    status: 'ACTIVE' as 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED',
+    licenseNumber: '',
+    licenseBoard: '',
+    licenseExpiryDate: '',
+  });
+  const [editingStaff, setEditingStaff] = useState<boolean>(false);
+  const [editStaffError, setEditStaffError] = useState<string | null>(null);
+
+  // Reset Password Form State
+  const [resetPasswordForm, setResetPasswordForm] = useState({
+    newPassword: '',
+    mustChangePassword: true,
+  });
+  const [showResetPassword, setShowResetPassword] = useState<boolean>(false);
+  const [resettingPassword, setResettingPassword] = useState<boolean>(false);
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+
+  // Password Generator Helper
+  const generateStrongPassword = (): string => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+    let pwd = 'Cal#';
+    for (let i = 0; i < 8; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pwd;
+  };
+
+  // Fetch Staff Accounts Callback
+  const fetchStaffAccounts = useCallback(async () => {
+    if (!token) return;
+    setLoadingStaffAccounts(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-      const res = await fetch(`${apiUrl}/auth/pending-requests`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const params = new URLSearchParams();
+      if (staffSearchQuery.trim()) params.append('search', staffSearchQuery.trim());
+      if (staffDeptFilter !== 'ALL') params.append('department', staffDeptFilter);
+      if (staffRoleFilter !== 'ALL') params.append('role', staffRoleFilter);
+      if (staffStatusFilter !== 'ALL') params.append('status', staffStatusFilter);
+
+      const url = `${apiUrl}/staff?${params.toString()}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+
       if (res.ok) {
         const data = await res.json();
-        setPendingEmployees(Array.isArray(data) ? data : []);
+        if (Array.isArray(data)) {
+          setStaffAccounts(data);
+          // Keep staffMembers synced for roster views
+          setStaffMembers(data.map((s: any) => ({
+            name: s.fullName || 'Staff Member',
+            role: s.staffProfile?.jobTitle || ROLE_DISPLAY_NAMES[s.role as UserRole] || s.role,
+            board: s.staffProfile?.licenseBoard || 'Regulatory Board',
+            license: s.staffProfile?.licenseNumber || '—',
+            expiry: s.staffProfile?.licenseExpiryDate
+              ? new Date(s.staffProfile.licenseExpiryDate).toISOString().split('T')[0]
+              : '—',
+            status: s.isActive ? 'ON_SHIFT' : 'OFF_DUTY',
+            phone: s.phone || '—',
+          })));
+        }
       }
     } catch (err) {
-      console.warn('Failed to fetch pending employees:', err);
+      console.warn('Failed to load staff accounts:', err);
     } finally {
-      setLoadingPending(false);
+      setLoadingStaffAccounts(false);
     }
-  }, [token, user?.role]);
+  }, [token, staffSearchQuery, staffDeptFilter, staffRoleFilter, staffStatusFilter]);
 
+  // Synchronize on active module change
   useEffect(() => {
-    if (activeModule === 'staff' && (user?.role === 'SUPER_ADMIN' || user?.role === 'FACILITY_ADMIN')) {
-      fetchPendingEmployees();
+    if (activeModule === 'staff' || activeModule === 'security') {
+      fetchStaffAccounts();
     }
-  }, [activeModule, user?.role, fetchPendingEmployees]);
+  }, [activeModule, fetchStaffAccounts]);
 
-  const handleApproveEmployee = async (employeeId: string, assignedRole: string) => {
-    if (!token) return;
-    setApprovalActionLoading(employeeId);
-    setActionSuccessMsg(null);
-    setActionErrorMsg(null);
+  // Staff Account Management Handlers
+  const handleCreateStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateStaffError(null);
+
+    if (!createStaffForm.fullName.trim() || !createStaffForm.email.trim() || !createStaffForm.jobTitle.trim()) {
+      setCreateStaffError('Please provide employee full name, institutional email, and job title.');
+      return;
+    }
+
+    if (!createStaffForm.initialPassword || createStaffForm.initialPassword.length < 8) {
+      setCreateStaffError('Provisioned initial password must be at least 8 characters in length.');
+      return;
+    }
+
+    setCreatingStaff(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-      const res = await fetch(`${apiUrl}/auth/approve-request/${employeeId}`, {
+      const res = await fetch(`${apiUrl}/staff/create-account`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ assignedRole, notes: 'Authorized via Staff Management console' }),
+        body: JSON.stringify(createStaffForm),
       });
+
       const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        setActionSuccessMsg(data.message || 'Staff account approved and activated successfully.');
-        await fetchPendingEmployees();
+        setIsCreateStaffOpen(false);
+        setStaffActionFeedback({
+          type: 'success',
+          message: data.message || `Staff account provisioned successfully for ${createStaffForm.fullName}.`,
+        });
+        setCreateStaffForm({
+          fullName: '',
+          email: '',
+          phone: '',
+          department: 'Inpatient Nursing',
+          jobTitle: '',
+          role: 'NURSE',
+          initialPassword: '',
+          mustChangePassword: true,
+          status: 'ACTIVE',
+          licenseNumber: '',
+          licenseBoard: '',
+          licenseExpiryDate: '',
+        });
+        await fetchStaffAccounts();
       } else {
-        setActionErrorMsg(data.message || 'Failed to approve staff account.');
+        setCreateStaffError(data.message || 'Failed to create staff account.');
       }
     } catch {
-      setActionErrorMsg('Network error communicating with authentication service.');
+      setCreateStaffError('Network error connecting to Calyvia API service.');
     } finally {
-      setApprovalActionLoading(null);
+      setCreatingStaff(false);
     }
   };
 
-  const handleRejectEmployee = async (employeeId: string) => {
-    const reason = window.prompt('Please provide a reason for declining this request:');
-    if (!reason || !reason.trim()) return;
-    if (!token) return;
+  const handleOpenEditStaff = (staffUser: any) => {
+    setSelectedStaffUser(staffUser);
+    setEditStaffForm({
+      fullName: staffUser.fullName || '',
+      phone: staffUser.phone || '',
+      department: staffUser.staffProfile?.department || 'Clinical Operations',
+      jobTitle: staffUser.staffProfile?.jobTitle || '',
+      role: staffUser.role || 'NURSE',
+      status: (staffUser.isActive ? 'ACTIVE' : staffUser.approvalStatus || 'SUSPENDED') as any,
+      licenseNumber: staffUser.staffProfile?.licenseNumber || '',
+      licenseBoard: staffUser.staffProfile?.licenseBoard || '',
+      licenseExpiryDate: staffUser.staffProfile?.licenseExpiryDate
+        ? new Date(staffUser.staffProfile.licenseExpiryDate).toISOString().split('T')[0]
+        : '',
+    });
+    setEditStaffError(null);
+    setIsEditStaffOpen(true);
+  };
 
-    setApprovalActionLoading(employeeId);
-    setActionSuccessMsg(null);
-    setActionErrorMsg(null);
+  const handleEditStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStaffUser) return;
+    setEditStaffError(null);
+    setEditingStaff(true);
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-      const res = await fetch(`${apiUrl}/auth/reject-request/${employeeId}`, {
+      const res = await fetch(`${apiUrl}/staff/${selectedStaffUser.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(editStaffForm),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setIsEditStaffOpen(false);
+        setStaffActionFeedback({
+          type: 'success',
+          message: data.message || `Account details for ${editStaffForm.fullName} updated successfully.`,
+        });
+        await fetchStaffAccounts();
+      } else {
+        setEditStaffError(data.message || 'Failed to update employee details.');
+      }
+    } catch {
+      setEditStaffError('Network error connecting to Calyvia API service.');
+    } finally {
+      setEditingStaff(false);
+    }
+  };
+
+  const handleOpenResetPassword = (staffUser: any) => {
+    setSelectedStaffUser(staffUser);
+    setResetPasswordForm({
+      newPassword: generateStrongPassword(),
+      mustChangePassword: true,
+    });
+    setResetPasswordError(null);
+    setIsResetPasswordOpen(true);
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStaffUser) return;
+    setResetPasswordError(null);
+
+    if (!resetPasswordForm.newPassword || resetPasswordForm.newPassword.length < 8) {
+      setResetPasswordError('Provisioned password must be at least 8 characters long.');
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/staff/${selectedStaffUser.id}/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ reason: reason.trim() }),
+        body: JSON.stringify(resetPasswordForm),
       });
+
       const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        setActionSuccessMsg('Access request was declined.');
-        await fetchPendingEmployees();
+        setIsResetPasswordOpen(false);
+        setStaffActionFeedback({
+          type: 'success',
+          message: data.message || `Credentials reset successfully for ${selectedStaffUser.fullName}.`,
+        });
+        await fetchStaffAccounts();
       } else {
-        setActionErrorMsg(data.message || 'Failed to decline request.');
+        setResetPasswordError(data.message || 'Failed to reset password.');
       }
     } catch {
-      setActionErrorMsg('Network error communicating with authentication service.');
+      setResetPasswordError('Network error connecting to Calyvia API service.');
     } finally {
-      setApprovalActionLoading(null);
+      setResettingPassword(false);
+    }
+  };
+
+  const handleToggleStaffStatus = async (staffUser: any) => {
+    const isCurrentlyActive = staffUser.isActive;
+    const targetStatus = isCurrentlyActive ? 'SUSPENDED' : 'ACTIVE';
+    const confirmPrompt = isCurrentlyActive
+      ? `Are you sure you want to SUSPEND access for '${staffUser.fullName}' (${staffUser.email})? They will immediately lose access to all clinical modules.`
+      : `Re-activate institutional account for '${staffUser.fullName}'?`;
+
+    if (!window.confirm(confirmPrompt)) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/staff/${staffUser.id}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: targetStatus,
+          reason: isCurrentlyActive ? 'Account suspended by administrator' : 'Account re-activated',
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setStaffActionFeedback({
+          type: 'success',
+          message: data.message || `Status updated to ${targetStatus} for ${staffUser.fullName}.`,
+        });
+        await fetchStaffAccounts();
+      } else {
+        setStaffActionFeedback({
+          type: 'error',
+          message: data.message || 'Failed to update employee account status.',
+        });
+      }
+    } catch {
+      setStaffActionFeedback({
+        type: 'error',
+        message: 'Network error updating employee account status.',
+      });
     }
   };
 
@@ -644,7 +894,7 @@ export default function AdminDashboardPage() {
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
         isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        onToggleCollapse={handleToggleSidebarCollapse}
       />
 
       {/* Main Content Area */}
@@ -654,7 +904,7 @@ export default function AdminDashboardPage() {
           onSelectModule={setActiveModule}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 space-y-6 pb-24 md:pb-8 pb-safe">
           {/* Executive Overview Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border/60">
             <div>
@@ -671,6 +921,19 @@ export default function AdminDashboardPage() {
                   : `Calyvia Wellness Center • Enterprise HMIS / EMR System`}
               </p>
             </div>
+
+            {/* Live Data Freshness & Quick Action Bar for Dashboard */}
+            {activeModule === 'dashboard' && (
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  onClick={() => setActiveModal('register_patient')}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-semibold shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Register Patient</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Access Control Barrier: Enforce Role Authorization for Module */}
@@ -702,9 +965,72 @@ export default function AdminDashboardPage() {
           {/* Module: Dashboard & Management Overview */}
           {activeModule === 'dashboard' && canAccessModule(user.role, 'dashboard') && (
             <div className="space-y-6">
+              {/* Operational Status & Clinical Highlights Banner (Only shown for critical acuity or active detox) */}
+              {(() => {
+                const criticalCount = dashboardMetrics?.clinical?.criticalVitalsAlerts ?? 0;
+                const detoxCases = dashboardMetrics?.admissions?.activeDetoxCases ?? 0;
+
+                if (criticalCount > 0) {
+                  return (
+                    <div className="p-4 rounded-2xl bg-warning-soft border border-warning/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-xl bg-warning/20 text-warning flex items-center justify-center flex-shrink-0">
+                          <AlertTriangle className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">High Acuity Clinical Notice</div>
+                          <div className="text-muted-foreground mt-0.5">
+                            {criticalCount} patient vitals alert(s) require review in Ruiru inpatient detox ward.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveModule('clinical')}
+                        className="px-3 py-1.5 rounded-xl bg-warning text-warning-foreground font-semibold hover:opacity-90 transition-opacity self-start sm:self-auto text-xs cursor-pointer"
+                      >
+                        Open Detox Station &rarr;
+                      </button>
+                    </div>
+                  );
+                }
+
+                if (detoxCases > 0) {
+                  return (
+                    <div className="p-4 rounded-2xl bg-surface-subtle border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-xl bg-primary-soft text-primary flex items-center justify-center flex-shrink-0">
+                          <Activity className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">Active Inpatient Medical Detox</div>
+                          <div className="text-muted-foreground mt-0.5">
+                            {detoxCases} client(s) currently admitted under structured CIWA-Ar withdrawal protocols.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveModule('clinical')}
+                        className="px-3 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary-hover transition-all self-start sm:self-auto text-xs cursor-pointer"
+                      >
+                        View Detox Vitals &rarr;
+                      </button>
+                    </div>
+                  );
+                }
+
+                return null;
+              })()}
+
               {/* 4 Metric Overview Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-border-strong hover:shadow-elevated transition-all duration-200 group">
+                {/* Total Inpatients Card */}
+                <div
+                  onClick={() => setActiveModule('rooms')}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveModule('rooms')}
+                  className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-primary/40 hover:shadow-elevated transition-all duration-200 group cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+                >
                   <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
                     <span className="text-foreground font-semibold">Total Inpatients</span>
                     <div className="w-8 h-8 rounded-xl bg-primary-soft text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -725,14 +1051,21 @@ export default function AdminDashboardPage() {
                         <ArrowUpRight className="w-3 h-3 mr-0.5" />
                         {dashboardMetrics?.census?.occupancyRatePercentage ?? 0}% Occupancy
                       </span>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground font-medium">
                         {dashboardMetrics?.census?.availableBeds ?? 0} available
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-border-strong hover:shadow-elevated transition-all duration-200 group">
+                {/* Today's Appointments Card */}
+                <div
+                  onClick={() => setActiveModule('appointments')}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveModule('appointments')}
+                  className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-secondary/40 hover:shadow-elevated transition-all duration-200 group cursor-pointer focus-visible:ring-2 focus-visible:ring-secondary focus-visible:outline-hidden"
+                >
                   <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
                     <span className="text-foreground font-semibold">Today&apos;s Appointments</span>
                     <div className="w-8 h-8 rounded-xl bg-secondary-soft text-secondary flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -751,14 +1084,21 @@ export default function AdminDashboardPage() {
                         <CheckCircle2 className="w-3 h-3 mr-0.5" />
                         {dashboardMetrics?.clinical?.completedSessions ?? 0} Completed
                       </span>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground font-medium">
                         {dashboardMetrics?.clinical?.pendingSessions ?? appointments.length} Pending
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-border-strong hover:shadow-elevated transition-all duration-200 group">
+                {/* Active Medical Detox Card */}
+                <div
+                  onClick={() => setActiveModule('clinical')}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveModule('clinical')}
+                  className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-accent/40 hover:shadow-elevated transition-all duration-200 group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-hidden"
+                >
                   <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
                     <span className="text-foreground font-semibold">Active Medical Detox</span>
                     <div className="w-8 h-8 rounded-xl bg-accent-soft text-accent flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -777,33 +1117,40 @@ export default function AdminDashboardPage() {
                         <AlertCircle className="w-3 h-3 mr-0.5" />
                         {dashboardMetrics?.clinical?.criticalVitalsAlerts ?? 0} Critical Alerts
                       </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {(dashboardMetrics?.admissions?.activeDetoxCases ?? 0) > 0 ? '< 30m due' : 'All clear'}
+                      <span className="text-[11px] text-muted-foreground font-medium">
+                        {(dashboardMetrics?.admissions?.activeDetoxCases ?? 0) > 0 ? 'Taper Protocol' : 'Nominal'}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-border-strong hover:shadow-elevated transition-all duration-200 group">
+                {/* MTD Collections Card */}
+                <div
+                  onClick={() => setActiveModule('billing')}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveModule('billing')}
+                  className="bg-card p-5 rounded-2xl border border-border shadow-card flex flex-col justify-between hover:border-primary/40 hover:shadow-elevated transition-all duration-200 group cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+                >
                   <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span className="text-foreground font-semibold">MTD Revenue</span>
+                    <span className="text-foreground font-semibold">MTD Collections</span>
                     <div className="w-8 h-8 rounded-xl bg-primary-soft text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
                       <CreditCard className="w-4 h-4" />
                     </div>
                   </div>
                   <div className="mt-3">
                     <div className="flex items-baseline space-x-2">
-                      <span className="text-2xl font-bold font-mono text-foreground">
+                      <span className="text-2xl font-bold font-mono text-foreground truncate">
                         KES {Number(dashboardMetrics?.financials?.mtdRevenueCollected || 0).toLocaleString()}
                       </span>
                     </div>
                     <div className="mt-2.5 flex items-center justify-between text-xs">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-success-soft text-success border border-success/20">
                         <TrendingUp className="w-3 h-3 mr-0.5" />
-                        {(Number(dashboardMetrics?.financials?.mtdRevenueCollected) || 0) > 0 ? '+14.2% vs target' : 'Live Receipts'}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
                         M-Pesa: {dashboardMetrics?.financials?.mpesaVolumePercentage ?? 0}%
+                      </span>
+                      <span className="text-[11px] text-muted-foreground font-medium">
+                        KES {Number(dashboardMetrics?.financials?.outstandingBalances || 0).toLocaleString()} bal
                       </span>
                     </div>
                   </div>
@@ -818,41 +1165,82 @@ export default function AdminDashboardPage() {
                   <div className="bg-card p-5 sm:p-6 rounded-2xl border border-border shadow-card space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div>
-                        <h2 className="font-serif text-lg font-bold text-foreground">
-                          Clinical Activity & Patient Census Trends
-                        </h2>
-                        <p className="text-xs text-muted-foreground">
-                          Weekly inpatient admissions, consultations, and detox discharges
+                        <div className="flex items-center space-x-2">
+                          <h2 className="font-serif text-lg font-bold text-foreground">
+                            Clinical Activity & Patient Census Trends
+                          </h2>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-surface-subtle text-muted-foreground border border-border">
+                            {trendView === 'weekly' ? '7-Day View' : '4-Week View'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {trendView === 'weekly'
+                            ? 'Daily inpatient census, therapy reviews, and clinical admissions across the week'
+                            : 'Rolling weekly inpatient admissions, therapy reviews, and detox discharges across the month'}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-1.5 bg-surface-subtle p-1 rounded-xl border border-border text-xs">
-                        <button
-                          onClick={() => setTrendView('weekly')}
-                          className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                            trendView === 'weekly' ? 'bg-surface text-foreground shadow-xs font-semibold' : 'text-muted-foreground'
-                          }`}
-                        >
-                          Weekly
-                        </button>
-                        <button
-                          onClick={() => setTrendView('monthly')}
-                          className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                            trendView === 'monthly' ? 'bg-surface text-foreground shadow-xs font-semibold' : 'text-muted-foreground'
-                          }`}
-                        >
-                          Monthly
-                        </button>
+
+                      <div className="flex items-center space-x-2">
+                        {/* Legend */}
+                        <div className="hidden sm:flex items-center space-x-3 text-[11px] text-muted-foreground mr-2">
+                          <span className="flex items-center space-x-1">
+                            <span className="w-2 h-2 rounded-full bg-primary" />
+                            <span>Inpatients</span>
+                          </span>
+                          <span className="flex items-center space-x-1">
+                            <span className="w-2 h-2 rounded-full bg-secondary" />
+                            <span>Therapy</span>
+                          </span>
+                        </div>
+
+                        {/* Period Toggle */}
+                        <div className="flex items-center space-x-1.5 bg-surface-subtle p-1 rounded-xl border border-border text-xs">
+                          <button
+                            onClick={() => setTrendView('weekly')}
+                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                              trendView === 'weekly' ? 'bg-surface text-foreground shadow-xs font-semibold' : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            Weekly
+                          </button>
+                          <button
+                            onClick={() => setTrendView('monthly')}
+                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                              trendView === 'monthly' ? 'bg-surface text-foreground shadow-xs font-semibold' : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            Monthly
+                          </button>
+                        </div>
                       </div>
                     </div>
 
                     <div className="relative pt-4 pb-2">
                       {(dashboardMetrics?.census?.occupiedBeds ?? 0) === 0 && (dashboardMetrics?.admissions?.thisMonth ?? 0) === 0 ? (
-                        <div className="h-48 w-full flex flex-col items-center justify-center text-center p-4 rounded-xl bg-surface-subtle border border-dashed border-border">
-                          <Activity className="w-8 h-8 text-muted-foreground/40 mb-2" />
-                          <p className="text-xs font-semibold text-foreground">No Inpatient Clinical Trends Recorded Yet</p>
-                          <p className="text-[11px] text-muted-foreground max-w-sm mt-0.5">
-                            Census activity curves, consultations, and detox discharges will generate here automatically as patients are admitted.
-                          </p>
+                        <div className="h-52 w-full flex flex-col items-center justify-center text-center p-6 rounded-xl bg-surface-subtle border border-dashed border-border space-y-3">
+                          <div className="w-10 h-10 rounded-2xl bg-surface border border-border flex items-center justify-center text-muted-foreground">
+                            <Activity className="w-5 h-5 text-muted-foreground/60" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-foreground">No Inpatient Clinical Trends Recorded Yet</p>
+                            <p className="text-[11px] text-muted-foreground max-w-sm mt-1">
+                              Census curves and clinical consultations generate dynamically in real-time as patients are admitted.
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2 pt-1">
+                            <button
+                              onClick={() => setActiveModal('register_patient')}
+                              className="px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover shadow-xs transition-all"
+                            >
+                              + Register Patient
+                            </button>
+                            <button
+                              onClick={() => setActiveModule('crm')}
+                              className="px-3 py-1.5 rounded-xl bg-surface border border-border text-foreground text-xs font-medium hover:bg-surface-elevated transition-all"
+                            >
+                              Intake Pipeline &rarr;
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div className="h-48 w-full">
@@ -866,16 +1254,43 @@ export default function AdminDashboardPage() {
                             <line x1="0" y1="30" x2="500" y2="30" stroke="var(--border)" strokeDasharray="3 3" strokeWidth="1" />
                             <line x1="0" y1="75" x2="500" y2="75" stroke="var(--border)" strokeDasharray="3 3" strokeWidth="1" />
                             <line x1="0" y1="120" x2="500" y2="120" stroke="var(--border)" strokeDasharray="3 3" strokeWidth="1" />
-                            <path d="M 0 110 Q 80 40, 160 70 T 330 45 T 500 20 L 500 150 L 0 150 Z" fill="url(#primaryAreaGrad)" />
-                            <path d="M 0 110 Q 80 40, 160 70 T 330 45 T 500 20" fill="none" stroke="var(--primary)" strokeWidth="2.5" />
-                            <circle cx="160" cy="70" r="4" fill="var(--primary)" />
-                            <circle cx="330" cy="45" r="4" fill="var(--primary)" />
-                            <circle cx="500" cy="20" r="5" fill="var(--primary)" />
+                            {trendView === 'weekly' ? (
+                              <>
+                                <path d="M 0 110 Q 80 40, 160 70 T 330 45 T 500 25 L 500 150 L 0 150 Z" fill="url(#primaryAreaGrad)" />
+                                <path d="M 0 110 Q 80 40, 160 70 T 330 45 T 500 25" fill="none" stroke="var(--primary)" strokeWidth="2.5" />
+                                <circle cx="80" cy="55" r="3.5" fill="var(--primary)" />
+                                <circle cx="160" cy="70" r="4" fill="var(--primary)" />
+                                <circle cx="245" cy="50" r="3.5" fill="var(--primary)" />
+                                <circle cx="330" cy="45" r="4" fill="var(--primary)" />
+                                <circle cx="415" cy="35" r="3.5" fill="var(--primary)" />
+                                <circle cx="500" cy="25" r="5" fill="var(--primary)" />
+                              </>
+                            ) : (
+                              <>
+                                <path d="M 0 120 Q 125 75, 250 55 T 500 20 L 500 150 L 0 150 Z" fill="url(#primaryAreaGrad)" />
+                                <path d="M 0 120 Q 125 75, 250 55 T 500 20" fill="none" stroke="var(--primary)" strokeWidth="2.5" />
+                                <circle cx="125" cy="75" r="4" fill="var(--primary)" />
+                                <circle cx="250" cy="55" r="4" fill="var(--primary)" />
+                                <circle cx="375" cy="35" r="4" fill="var(--primary)" />
+                                <circle cx="500" cy="20" r="5" fill="var(--primary)" />
+                              </>
+                            )}
                           </svg>
                         </div>
                       )}
                       <div className="flex justify-between text-[11px] text-muted-foreground pt-3 border-t border-border/40 font-mono mt-2">
-                        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                        {trendView === 'weekly' ? (
+                          <>
+                            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Week 1 (Intake)</span>
+                            <span>Week 2 (Detox/Stabilization)</span>
+                            <span>Week 3 (Therapy Cadence)</span>
+                            <span>Week 4 (Aftercare Transition)</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -989,24 +1404,59 @@ export default function AdminDashboardPage() {
                   {/* Facility Quick Operations */}
                   <div className="bg-card p-5 rounded-2xl border border-border shadow-card space-y-3.5 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-foreground">Facility Operations</span>
-                      <span className="text-[10px] font-mono text-emerald-500 font-bold">Live Status</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-foreground">Facility Operations</span>
+                        <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>Live</span>
+                        </span>
+                      </div>
+                      <button onClick={() => setActiveModule('staff')} className="text-xs text-primary font-semibold hover:underline cursor-pointer">
+                        Staff Roster &rarr;
+                      </button>
                     </div>
                     <div className="space-y-2.5">
-                      <div className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between">
-                        <span className="text-foreground">Clinical Staff on Duty</span>
+                      <div
+                        onClick={() => setActiveModule('staff')}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === 'Enter' && setActiveModule('staff')}
+                        className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between hover:border-primary/40 hover:bg-surface-elevated transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Users className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-foreground">Clinical Staff on Duty</span>
+                        </div>
                         <span className="font-bold font-mono text-foreground">
                           {dashboardMetrics?.qualityAndSafety?.staffOnDuty ?? staffMembers.length} Active
                         </span>
                       </div>
-                      <div className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between">
-                        <span className="text-foreground">Pharmacy In-Stock</span>
+                      <div
+                        onClick={() => setActiveModule('pharmacy')}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === 'Enter' && setActiveModule('pharmacy')}
+                        className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between hover:border-primary/40 hover:bg-surface-elevated transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Pill className="w-3.5 h-3.5 text-secondary" />
+                          <span className="text-foreground">Pharmacy In-Stock</span>
+                        </div>
                         <span className="font-bold font-mono text-emerald-500">
-                          {pharmacyStock.length > 0 ? `${Math.round((pharmacyStock.filter((p) => p.status !== 'LOW_STOCK').length / pharmacyStock.length) * 100)}%` : '100%'}
+                          {pharmacyStock.length > 0 ? `${Math.round((pharmacyStock.filter((p) => p.status !== 'LOW_STOCK').length / pharmacyStock.length) * 100)}%` : '100% Nominal'}
                         </span>
                       </div>
-                      <div className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between">
-                        <span className="text-foreground">Detox Bed Occupancy</span>
+                      <div
+                        onClick={() => setActiveModule('clinical')}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === 'Enter' && setActiveModule('clinical')}
+                        className="p-3 rounded-xl bg-surface-subtle border border-border flex items-center justify-between hover:border-accent/40 hover:bg-surface-elevated transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Activity className="w-3.5 h-3.5 text-accent" />
+                          <span className="text-foreground">Detox Bed Occupancy</span>
+                        </div>
                         <span className="font-bold font-mono text-accent">
                           {dashboardMetrics?.census?.detoxWardOccupancy ?? 0} Beds Active
                         </span>
@@ -1025,17 +1475,32 @@ export default function AdminDashboardPage() {
                           Scheduled psychiatric evaluations & therapy
                         </p>
                       </div>
-                      <button onClick={() => setActiveModule('appointments')} className="text-xs text-primary font-semibold hover:underline">
+                      <button onClick={() => setActiveModule('appointments')} className="text-xs text-primary font-semibold hover:underline cursor-pointer">
                         View All ({appointments.length}) &rarr;
                       </button>
                     </div>
 
                     <div className="divide-y divide-border text-xs">
                       {appointments.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-muted-foreground space-y-1.5">
-                          <CalendarIcon className="w-6 h-6 mx-auto text-muted-foreground/40" />
-                          <p className="font-medium text-foreground">No appointments scheduled for today</p>
-                          <p className="text-[11px] text-muted-foreground">Sessions booked via the calendar or front desk will appear here.</p>
+                        <div className="p-8 text-center text-xs text-muted-foreground space-y-2">
+                          <div className="w-10 h-10 rounded-2xl bg-surface border border-border flex items-center justify-center text-muted-foreground mx-auto">
+                            <CalendarIcon className="w-5 h-5 text-muted-foreground/50" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">No appointments scheduled for today</p>
+                            <p className="text-[11px] text-muted-foreground max-w-xs mx-auto mt-0.5">
+                              Bookings made via the front desk or calendar schedule will appear here.
+                            </p>
+                          </div>
+                          <div className="pt-1">
+                            <button
+                              onClick={() => setActiveModal('new_appointment')}
+                              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover shadow-xs transition-all cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Book Appointment</span>
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         appointments.slice(0, 4).map((apt) => (
@@ -1531,141 +1996,356 @@ export default function AdminDashboardPage() {
           {/* Module: 12. Staff & Licence Roster */}
           {activeModule === 'staff' && (
             <div className="space-y-6">
-              {/* Administrator Approval Console: Visible to Super Admin & Facility Admin */}
+              {/* Administrator Staff Account Management Console: Visible to Super Admin & Facility Admin */}
               {(user?.role === 'SUPER_ADMIN' || user?.role === 'FACILITY_ADMIN') && (
-                <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-5">
+                  {/* Console Header & Action Toolbar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                          {pendingEmployees.length} PENDING AUTHORIZATION{pendingEmployees.length === 1 ? '' : 'S'}
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary-soft text-primary border border-primary/20">
+                          {staffAccounts.length} REGISTERED PERSONNEL
                         </span>
-                        <span className="text-xs text-muted-foreground font-mono">RBAC Provisioning</span>
+                        <span className="text-xs text-muted-foreground font-mono">RBAC Governance</span>
                       </div>
                       <h2 className="font-serif text-xl font-bold text-foreground mt-1">
-                        Employee Registration & Authorization Console
+                        Staff Account Management & Credential Provisioning
                       </h2>
                       <p className="text-xs text-muted-foreground">
-                        Review submitted staff applications, verify institutional identity, assign clinical roles, and activate accounts.
+                        Create employee accounts, provision institutional credentials, assign clinical/administrative roles, and control access permissions.
                       </p>
                     </div>
 
-                    <button
-                      onClick={fetchPendingEmployees}
-                      disabled={loadingPending}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-surface hover:bg-surface-elevated border border-border text-foreground text-xs font-semibold rounded-xl shadow-xs transition-all self-start sm:self-auto disabled:opacity-60"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 text-primary ${loadingPending ? 'animate-spin' : ''}`} />
-                      <span>Refresh Requests</span>
-                    </button>
+                    <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                      <button
+                        onClick={fetchStaffAccounts}
+                        disabled={loadingStaffAccounts}
+                        className="inline-flex items-center space-x-1.5 px-3 py-2 bg-surface hover:bg-surface-elevated border border-border text-foreground text-xs font-semibold rounded-xl shadow-xs transition-all disabled:opacity-60"
+                        title="Refresh Staff List"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-primary ${loadingStaffAccounts ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline">Refresh</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setCreateStaffError(null);
+                          setCreateStaffForm({
+                            fullName: '',
+                            email: '',
+                            phone: '',
+                            department: 'Clinical Operations',
+                            jobTitle: '',
+                            role: 'NURSE',
+                            initialPassword: generateStrongPassword(),
+                            mustChangePassword: true,
+                            status: 'ACTIVE',
+                            licenseNumber: '',
+                            licenseBoard: 'Nursing Council of Kenya',
+                            licenseExpiryDate: '',
+                          });
+                          setIsCreateStaffOpen(true);
+                        }}
+                        className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-semibold rounded-xl shadow-xs transition-all"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Create Staff Account</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {actionSuccessMsg && (
-                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-xs flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                      <span>{actionSuccessMsg}</span>
+                  {/* Feedback Notification */}
+                  {staffActionFeedback && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                        staffActionFeedback.type === 'success'
+                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'
+                          : 'bg-danger-soft border-danger/20 text-danger'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        {staffActionFeedback.type === 'success' ? (
+                          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        )}
+                        <span>{staffActionFeedback.message}</span>
+                      </div>
+                      <button
+                        onClick={() => setStaffActionFeedback(null)}
+                        className="p-1 hover:opacity-75 transition-opacity"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
 
-                  {actionErrorMsg && (
-                    <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-center space-x-2">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                      <span>{actionErrorMsg}</span>
+                  {/* Operational Summary Metrics */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-surface p-3.5 rounded-xl border border-border">
+                      <div className="text-[11px] font-medium text-muted-foreground">Total Staff Accounts</div>
+                      <div className="text-xl font-bold font-mono text-foreground mt-0.5">
+                        {staffAccounts.length}
+                      </div>
                     </div>
-                  )}
+                    <div className="bg-surface p-3.5 rounded-xl border border-border">
+                      <div className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Active Personnel
+                      </div>
+                      <div className="text-xl font-bold font-mono text-emerald-600 mt-0.5">
+                        {staffAccounts.filter((s) => s.isActive && s.approvalStatus !== 'SUSPENDED').length}
+                      </div>
+                    </div>
+                    <div className="bg-surface p-3.5 rounded-xl border border-border">
+                      <div className="text-[11px] font-medium text-amber-600 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Suspended / Inactive
+                      </div>
+                      <div className="text-xl font-bold font-mono text-amber-600 mt-0.5">
+                        {staffAccounts.filter((s) => !s.isActive || s.approvalStatus === 'SUSPENDED').length}
+                      </div>
+                    </div>
+                    <div className="bg-surface p-3.5 rounded-xl border border-border">
+                      <div className="text-[11px] font-medium text-primary flex items-center gap-1">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Licensed Clinicians
+                      </div>
+                      <div className="text-xl font-bold font-mono text-foreground mt-0.5">
+                        {staffAccounts.filter((s) => s.staffProfile?.licenseNumber).length}
+                      </div>
+                    </div>
+                  </div>
 
-                  {loadingPending && pendingEmployees.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-muted-foreground flex items-center justify-center space-x-2">
+                  {/* Search and Filters Toolbar */}
+                  <div className="flex flex-col md:flex-row gap-3 pt-2">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={staffSearchQuery}
+                        onChange={(e) => setStaffSearchQuery(e.target.value)}
+                        placeholder="Search employee by name, institutional email, or designation..."
+                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Department Filter */}
+                      <select
+                        value={staffDeptFilter}
+                        onChange={(e) => setStaffDeptFilter(e.target.value)}
+                        className="bg-surface border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:border-primary transition-all"
+                      >
+                        <option value="ALL">All Departments</option>
+                        <option value="Clinical Operations">Clinical Operations (Psychiatry / Doctors)</option>
+                        <option value="Inpatient Nursing">Inpatient Nursing (Detox Ward)</option>
+                        <option value="Psychological Therapy">Counselling & Psychology</option>
+                        <option value="Pharmacy & Dispensary">Pharmacy & Dispensary</option>
+                        <option value="Admissions & Front Desk">Admissions & Front Desk</option>
+                        <option value="Billing & Finance">Billing & Finance</option>
+                        <option value="Stores & Inventory">Stores & Inventory</option>
+                        <option value="Executive Management & Administration">Executive Administration</option>
+                      </select>
+
+                      {/* Role Filter */}
+                      <select
+                        value={staffRoleFilter}
+                        onChange={(e) => setStaffRoleFilter(e.target.value)}
+                        className="bg-surface border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:border-primary transition-all"
+                      >
+                        <option value="ALL">All Roles</option>
+                        <option value="FACILITY_ADMIN">Facility Administrator</option>
+                        <option value="MEDICAL_DIRECTOR">Medical Director</option>
+                        <option value="DOCTOR_PSYCHIATRIST">Doctor / Psychiatrist</option>
+                        <option value="NURSE">Nurse</option>
+                        <option value="COUNSELLOR">Addiction Counsellor</option>
+                        <option value="PHARMACIST">Pharmacist</option>
+                        <option value="ADMISSIONS_FRONT_DESK">Admissions & Front Desk</option>
+                        <option value="FINANCE_BILLING">Finance & Billing</option>
+                        <option value="INVENTORY_STORE">Stores & Inventory</option>
+                        <option value="MANAGEMENT_EXECUTIVE">Management Executive</option>
+                        <option value="SUPER_ADMIN">System Administrator</option>
+                      </select>
+
+                      {/* Status Filter */}
+                      <select
+                        value={staffStatusFilter}
+                        onChange={(e) => setStaffStatusFilter(e.target.value)}
+                        className="bg-surface border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:border-primary transition-all"
+                      >
+                        <option value="ALL">All Statuses</option>
+                        <option value="ACTIVE">Active Only</option>
+                        <option value="SUSPENDED">Suspended Only</option>
+                        <option value="DEACTIVATED">Deactivated Only</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Staff Accounts Table */}
+                  {loadingStaffAccounts && staffAccounts.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center space-x-2">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      <span>Loading pending authorization requests...</span>
+                      <span>Loading institutional staff accounts...</span>
                     </div>
-                  ) : pendingEmployees.length === 0 ? (
-                    <div className="p-6 rounded-xl bg-surface-subtle border border-border text-center space-y-2">
-                      <ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto" />
-                      <p className="text-xs font-semibold text-foreground">No Pending Authorization Requests</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        All employee accounts have been reviewed and approved. New registrations will appear here in real-time.
-                      </p>
+                  ) : staffAccounts.length === 0 ? (
+                    <div className="p-8 rounded-xl bg-surface-subtle border border-border text-center space-y-3">
+                      <Users className="w-8 h-8 text-muted-foreground/50 mx-auto" />
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">No Staff Accounts Found</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {staffSearchQuery || staffDeptFilter !== 'ALL' || staffRoleFilter !== 'ALL'
+                            ? 'No accounts match the current filter criteria. Try resetting filters.'
+                            : 'No personnel accounts have been provisioned yet. Use the button above to create the first employee account.'}
+                        </p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-border mt-3">
+                    <div className="overflow-x-auto rounded-xl border border-border">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-surface-elevated text-muted-foreground uppercase text-[10px] tracking-wider font-semibold border-b border-border">
                           <tr>
-                            <th className="px-4 py-3">Applicant Name & Email</th>
+                            <th className="px-4 py-3">Employee & Credentials</th>
                             <th className="px-4 py-3">Department & Title</th>
-                            <th className="px-4 py-3">Phone</th>
-                            <th className="px-4 py-3">Requested Role</th>
-                            <th className="px-4 py-3">Assign Authorized Role</th>
-                            <th className="px-4 py-3 text-right">Actions</th>
+                            <th className="px-4 py-3">Assigned Role</th>
+                            <th className="px-4 py-3">Account Status</th>
+                            <th className="px-4 py-3">Password Policy</th>
+                            <th className="px-4 py-3 text-right">Administrative Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {pendingEmployees.map((emp) => {
-                            const selectedRole = roleSelections[emp.id] || emp.requestedRole || emp.role || 'NURSE';
-                            const isBusy = approvalActionLoading === emp.id;
+                          {staffAccounts.map((emp) => {
+                            const isSuperAdmin = emp.role === 'SUPER_ADMIN';
+                            const isSelf = emp.id === user?.id;
 
                             return (
                               <tr key={emp.id} className="hover:bg-surface-subtle transition-colors">
                                 <td className="px-4 py-3">
-                                  <div className="font-semibold text-foreground">{emp.fullName}</div>
-                                  <div className="text-[11px] text-muted-foreground font-mono">{emp.email}</div>
+                                  <div className="font-semibold text-foreground flex items-center space-x-1.5">
+                                    <span>{emp.fullName}</span>
+                                    {isSelf && (
+                                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-primary-soft text-primary font-mono">
+                                        You
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground font-mono flex items-center space-x-1 mt-0.5">
+                                    <Mail className="w-3 h-3 text-muted-foreground/70" />
+                                    <span>{emp.email}</span>
+                                  </div>
+                                  {emp.phone && (
+                                    <div className="text-[10px] text-muted-foreground/80 font-mono mt-0.5">
+                                      {emp.phone}
+                                    </div>
+                                  )}
                                 </td>
+
                                 <td className="px-4 py-3">
-                                  <div className="text-foreground">{emp.staffProfile?.department || 'General Staff'}</div>
-                                  <div className="text-[11px] text-muted-foreground">{emp.staffProfile?.jobTitle || 'Clinical Staff'}</div>
+                                  <div className="font-medium text-foreground">
+                                    {emp.staffProfile?.department || 'Administration'}
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    {emp.staffProfile?.jobTitle || 'Institutional Personnel'}
+                                  </div>
+                                  {emp.staffProfile?.licenseNumber && (
+                                    <div className="text-[10px] text-muted-foreground/80 font-mono mt-0.5">
+                                      Licence: {emp.staffProfile.licenseNumber}
+                                    </div>
+                                  )}
                                 </td>
-                                <td className="px-4 py-3 font-mono text-muted-foreground">
-                                  {emp.phone || '—'}
-                                </td>
+
                                 <td className="px-4 py-3">
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                                    {emp.requestedRole || emp.role}
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
+                                      emp.role === 'SUPER_ADMIN'
+                                        ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
+                                        : emp.role === 'FACILITY_ADMIN'
+                                        ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                                        : emp.role === 'MEDICAL_DIRECTOR' || emp.role === 'DOCTOR_PSYCHIATRIST'
+                                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                        : emp.role === 'NURSE'
+                                        ? 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20'
+                                        : emp.role === 'COUNSELLOR'
+                                        ? 'bg-teal-500/10 text-teal-600 border-teal-500/20'
+                                        : emp.role === 'PHARMACIST'
+                                        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                                        : emp.role === 'FINANCE_BILLING'
+                                        ? 'bg-violet-500/10 text-violet-600 border-violet-500/20'
+                                        : 'bg-surface-elevated text-foreground border-border'
+                                    }`}
+                                  >
+                                    {ROLE_DISPLAY_NAMES[emp.role as UserRole] || emp.role}
                                   </span>
                                 </td>
+
                                 <td className="px-4 py-3">
-                                  <select
-                                    value={selectedRole}
-                                    onChange={(e) =>
-                                      setRoleSelections({ ...roleSelections, [emp.id]: e.target.value })
-                                    }
-                                    disabled={isBusy}
-                                    className="bg-surface border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
-                                  >
-                                    <option value="NURSE">Nurse (NURSE)</option>
-                                    <option value="DOCTOR_PSYCHIATRIST">Doctor / Psychiatrist (DOCTOR_PSYCHIATRIST)</option>
-                                    <option value="COUNSELLOR">Addiction Counsellor (COUNSELLOR)</option>
-                                    <option value="PHARMACIST">Pharmacist (PHARMACIST)</option>
-                                    <option value="ADMISSIONS_FRONT_DESK">Admissions & Front Desk (ADMISSIONS_FRONT_DESK)</option>
-                                    <option value="FINANCE_BILLING">Finance & Billing (FINANCE_BILLING)</option>
-                                    <option value="INVENTORY_STORE">Stores & Inventory (INVENTORY_STORE)</option>
-                                    <option value="MEDICAL_DIRECTOR">Medical Director (MEDICAL_DIRECTOR)</option>
-                                    <option value="FACILITY_ADMIN">Facility Administrator (FACILITY_ADMIN)</option>
-                                  </select>
+                                  {emp.isActive && emp.approvalStatus !== 'SUSPENDED' && emp.approvalStatus !== 'DEACTIVATED' ? (
+                                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                      <span>Active</span>
+                                    </span>
+                                  ) : emp.approvalStatus === 'SUSPENDED' || (!emp.isActive && emp.approvalStatus !== 'DEACTIVATED') ? (
+                                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                      <span>Suspended</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-muted-foreground border border-border">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                      <span>Deactivated</span>
+                                    </span>
+                                  )}
                                 </td>
+
+                                <td className="px-4 py-3">
+                                  {emp.mustChangePassword ? (
+                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                                      <Lock className="w-3 h-3" />
+                                      <span>Change on Login</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-surface text-muted-foreground border border-border">
+                                      <Check className="w-3 h-3 text-emerald-500" />
+                                      <span>Secured</span>
+                                    </span>
+                                  )}
+                                </td>
+
                                 <td className="px-4 py-3 text-right">
-                                  <div className="inline-flex items-center space-x-2">
+                                  <div className="inline-flex items-center space-x-1.5">
                                     <button
-                                      onClick={() => handleApproveEmployee(emp.id, selectedRole)}
-                                      disabled={isBusy}
-                                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 shadow-xs transition-all disabled:opacity-60"
+                                      onClick={() => handleOpenEditStaff(emp)}
+                                      className="p-1.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border text-foreground hover:text-primary transition-all shadow-xs"
+                                      title="Edit Staff Details & Role"
                                     >
-                                      {isBusy ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <Check className="w-3.5 h-3.5" />
-                                      )}
-                                      <span>Authorize</span>
+                                      <Edit3 className="w-3.5 h-3.5" />
                                     </button>
 
                                     <button
-                                      onClick={() => handleRejectEmployee(emp.id)}
-                                      disabled={isBusy}
-                                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-danger-soft text-muted-foreground hover:text-danger border border-border hover:border-danger/30 text-xs font-semibold transition-all disabled:opacity-60"
+                                      onClick={() => handleOpenResetPassword(emp)}
+                                      className="p-1.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border text-foreground hover:text-primary transition-all shadow-xs"
+                                      title="Reset Staff Password"
                                     >
-                                      <UserX className="w-3.5 h-3.5" />
-                                      <span>Decline</span>
+                                      <Key className="w-3.5 h-3.5" />
                                     </button>
+
+                                    {!isSelf && (
+                                      <button
+                                        onClick={() => handleToggleStaffStatus(emp)}
+                                        className={`p-1.5 rounded-lg border transition-all shadow-xs ${
+                                          emp.isActive
+                                            ? 'bg-surface hover:bg-amber-500/10 border-border hover:border-amber-500/30 text-muted-foreground hover:text-amber-600'
+                                            : 'bg-surface hover:bg-emerald-500/10 border-border hover:border-emerald-500/30 text-muted-foreground hover:text-emerald-600'
+                                        }`}
+                                        title={emp.isActive ? 'Suspend Employee Access' : 'Reactivate Employee Access'}
+                                      >
+                                        {emp.isActive ? (
+                                          <UserX className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <UserCheck className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -2012,6 +2692,27 @@ export default function AdminDashboardPage() {
                     AES-256-GCM Active
                   </span>
                 </div>
+
+                {(user?.role === 'SUPER_ADMIN' || user?.role === 'FACILITY_ADMIN') && (
+                  <div className="p-4 rounded-xl bg-surface-subtle border border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-xl bg-primary-soft text-primary flex items-center justify-center flex-shrink-0">
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-foreground">Personnel Credential & Access Management</div>
+                        <div className="text-[11px] text-muted-foreground">Provision staff accounts, assign login emails, allocate system roles, and revoke employee access.</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveModule('staff')}
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover transition-all self-start sm:self-auto shadow-xs"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Manage Staff Accounts</span>
+                    </button>
+                  </div>
+                )}
                 <div className="overflow-x-auto rounded-xl border border-border mt-3">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-surface-elevated text-muted-foreground uppercase text-[10px] tracking-wider font-semibold border-b border-border">
@@ -2332,11 +3033,11 @@ export default function AdminDashboardPage() {
 
       {/* Modal: Register Patient */}
       {activeModal === 'register_patient' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Register New Patient</h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -2420,11 +3121,11 @@ export default function AdminDashboardPage() {
 
       {/* Modal: Schedule Appointment */}
       {activeModal === 'book_appointment' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Schedule Clinical Appointment</h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -2495,6 +3196,551 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+      {/* Modal: Create & Provision Staff Account */}
+      {isCreateStaffOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border sticky top-0 bg-surface z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-foreground">Provision Staff Account</h3>
+                  <p className="text-[11px] text-muted-foreground">Authorized administrative employee account creation & RBAC assignment</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateStaffOpen(false)}
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {createStaffError && (
+              <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{createStaffError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateStaffSubmit} className="space-y-4 text-xs font-sans">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* Full Name */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">
+                    Full Name <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createStaffForm.fullName}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, fullName: e.target.value })}
+                    placeholder="e.g. Nurse Beatrice Wanjiku"
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  />
+                </div>
+
+                {/* Institutional Email */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">
+                    Institutional Email <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={createStaffForm.email}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, email: e.target.value })}
+                    placeholder="e.g. b.wanjiku@calyviawellness.co.ke"
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-mono transition-all"
+                  />
+                </div>
+
+                {/* Contact Phone */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Contact Phone (+254)</label>
+                  <input
+                    type="tel"
+                    value={createStaffForm.phone}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, phone: e.target.value })}
+                    placeholder="+254 700 000 000"
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-mono transition-all"
+                  />
+                </div>
+
+                {/* Department */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">
+                    Department <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    value={createStaffForm.department}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, department: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  >
+                    <option value="Clinical Operations">Clinical Operations (Psychiatry / Doctors)</option>
+                    <option value="Inpatient Nursing">Inpatient Nursing (Detox Ward)</option>
+                    <option value="Psychological Therapy">Counselling & Psychology</option>
+                    <option value="Pharmacy & Dispensary">Pharmacy & Dispensary</option>
+                    <option value="Admissions & Front Desk">Admissions & Front Desk</option>
+                    <option value="Billing & Finance">Billing & Finance</option>
+                    <option value="Stores & Inventory">Stores & Inventory</option>
+                    <option value="Executive Management & Administration">Executive Administration</option>
+                  </select>
+                </div>
+
+                {/* Job Title */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">
+                    Job Title / Designation <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createStaffForm.jobTitle}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, jobTitle: e.target.value })}
+                    placeholder="e.g. Senior Nursing Officer"
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  />
+                </div>
+
+                {/* Assigned System Role */}
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">
+                    Assigned System Role <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    value={createStaffForm.role}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, role: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-medium transition-all"
+                  >
+                    <option value="NURSE">Nurse / Clinical Detox Ward (NURSE)</option>
+                    <option value="DOCTOR_PSYCHIATRIST">Doctor / Consultant Psychiatrist (DOCTOR_PSYCHIATRIST)</option>
+                    <option value="COUNSELLOR">Addiction Counsellor / Psychologist (COUNSELLOR)</option>
+                    <option value="PHARMACIST">Pharmacist / Dispensary (PHARMACIST)</option>
+                    <option value="ADMISSIONS_FRONT_DESK">Admissions & Reception Front Desk (ADMISSIONS_FRONT_DESK)</option>
+                    <option value="FINANCE_BILLING">Finance / Billing Officer & Cashier (FINANCE_BILLING)</option>
+                    <option value="INVENTORY_STORE">Store & Inventory Manager (INVENTORY_STORE)</option>
+                    <option value="FACILITY_ADMIN">Facility Administrator (FACILITY_ADMIN)</option>
+                    <option value="MEDICAL_DIRECTOR">Medical Director / Clinical Head (MEDICAL_DIRECTOR)</option>
+                    <option value="MANAGEMENT_EXECUTIVE">Management Executive (MANAGEMENT_EXECUTIVE)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Password Provisioning Section */}
+              <div className="p-4 rounded-2xl bg-surface-subtle border border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-foreground font-semibold flex items-center space-x-1.5">
+                    <Lock className="w-3.5 h-3.5 text-primary" />
+                    <span>Initial Provisioned Password <span className="text-danger">*</span></span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCreateStaffForm({ ...createStaffForm, initialPassword: generateStrongPassword() })}
+                    className="text-[11px] text-primary hover:underline font-medium inline-flex items-center space-x-1"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Generate Strong Password</span>
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    required
+                    value={createStaffForm.initialPassword}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, initialPassword: e.target.value })}
+                    placeholder="Min 8 characters (letters, numbers, symbols)"
+                    className="w-full bg-surface border border-border rounded-xl px-3.5 pr-10 py-2.5 text-foreground focus:outline-none focus:border-primary font-mono text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword(!showCreatePassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showCreatePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="createMustChange"
+                    checked={createStaffForm.mustChangePassword}
+                    onChange={(e) => setCreateStaffForm({ ...createStaffForm, mustChangePassword: e.target.checked })}
+                    className="rounded border-border text-primary focus:ring-primary w-3.5 h-3.5 accent-primary"
+                  />
+                  <label htmlFor="createMustChange" className="text-xs text-muted-foreground select-none cursor-pointer">
+                    Require employee to change this password on their first successful sign-in
+                  </label>
+                </div>
+              </div>
+
+              {/* Regulatory Licensing Details (Optional) */}
+              <div className="p-4 rounded-2xl bg-surface-subtle border border-border space-y-3">
+                <div className="text-foreground font-semibold flex items-center space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                  <span>Professional Regulatory Licensing (For Clinical Staff)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-muted-foreground text-[11px] mb-1">Licensing Board</label>
+                    <input
+                      type="text"
+                      value={createStaffForm.licenseBoard}
+                      onChange={(e) => setCreateStaffForm({ ...createStaffForm, licenseBoard: e.target.value })}
+                      placeholder="e.g. KMPDC / NCK"
+                      className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground text-[11px] mb-1">Licence Number</label>
+                    <input
+                      type="text"
+                      value={createStaffForm.licenseNumber}
+                      onChange={(e) => setCreateStaffForm({ ...createStaffForm, licenseNumber: e.target.value })}
+                      placeholder="e.g. NCK/RN/2026/001"
+                      className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground text-[11px] mb-1">Licence Expiry</label>
+                    <input
+                      type="date"
+                      value={createStaffForm.licenseExpiryDate}
+                      onChange={(e) => setCreateStaffForm({ ...createStaffForm, licenseExpiryDate: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Form Action Controls */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateStaffOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-foreground hover:bg-surface-elevated font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingStaff}
+                  className="px-5 py-2 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary-hover shadow-xs active:scale-95 disabled:opacity-50 transition-all flex items-center space-x-1.5"
+                >
+                  {creatingStaff ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Provisioning Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Create Staff Account</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Staff Details & Role */}
+      {isEditStaffOpen && selectedStaffUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border sticky top-0 bg-surface z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-foreground">Edit Staff Profile & Role</h3>
+                  <p className="text-[11px] text-muted-foreground font-mono">{selectedStaffUser.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditStaffOpen(false)}
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editStaffError && (
+              <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{editStaffError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleEditStaffSubmit} className="space-y-4 text-xs font-sans">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStaffForm.fullName}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, fullName: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={editStaffForm.phone}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, phone: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary font-mono text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Department</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStaffForm.department}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, department: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Job Title</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStaffForm.jobTitle}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, jobTitle: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Assigned System Role</label>
+                  <select
+                    value={editStaffForm.role}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, role: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary font-medium text-xs"
+                  >
+                    <option value="NURSE">Nurse (NURSE)</option>
+                    <option value="DOCTOR_PSYCHIATRIST">Doctor / Psychiatrist (DOCTOR_PSYCHIATRIST)</option>
+                    <option value="COUNSELLOR">Addiction Counsellor (COUNSELLOR)</option>
+                    <option value="PHARMACIST">Pharmacist (PHARMACIST)</option>
+                    <option value="ADMISSIONS_FRONT_DESK">Admissions & Front Desk (ADMISSIONS_FRONT_DESK)</option>
+                    <option value="FINANCE_BILLING">Finance & Billing (FINANCE_BILLING)</option>
+                    <option value="INVENTORY_STORE">Stores & Inventory (INVENTORY_STORE)</option>
+                    <option value="FACILITY_ADMIN">Facility Administrator (FACILITY_ADMIN)</option>
+                    <option value="MEDICAL_DIRECTOR">Medical Director (MEDICAL_DIRECTOR)</option>
+                    <option value="MANAGEMENT_EXECUTIVE">Management Executive (MANAGEMENT_EXECUTIVE)</option>
+                    {user?.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">System Administrator (SUPER_ADMIN)</option>}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-foreground font-semibold">Account Status</label>
+                  <select
+                    value={editStaffForm.status}
+                    onChange={(e) => setEditStaffForm({ ...editStaffForm, status: e.target.value as any })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary text-xs"
+                  >
+                    <option value="ACTIVE">Active (Access Permitted)</option>
+                    <option value="SUSPENDED">Suspended (Access Temporarily Revoked)</option>
+                    <option value="DEACTIVATED">Deactivated (Access Permanently Disabled)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-surface-subtle border border-border space-y-2.5">
+                <div className="font-semibold text-foreground text-[11px]">Regulatory Licensing Roster Audit</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-muted-foreground text-[10px] mb-1">Board</label>
+                    <input
+                      type="text"
+                      value={editStaffForm.licenseBoard}
+                      onChange={(e) => setEditStaffForm({ ...editStaffForm, licenseBoard: e.target.value })}
+                      placeholder="e.g. KMPDC"
+                      className="w-full bg-surface border border-border rounded-lg p-2 text-foreground focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground text-[10px] mb-1">Licence ID</label>
+                    <input
+                      type="text"
+                      value={editStaffForm.licenseNumber}
+                      onChange={(e) => setEditStaffForm({ ...editStaffForm, licenseNumber: e.target.value })}
+                      placeholder="Licence No"
+                      className="w-full bg-surface border border-border rounded-lg p-2 text-foreground font-mono focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground text-[10px] mb-1">Expiry Date</label>
+                    <input
+                      type="date"
+                      value={editStaffForm.licenseExpiryDate}
+                      onChange={(e) => setEditStaffForm({ ...editStaffForm, licenseExpiryDate: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-lg p-2 text-foreground focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setIsEditStaffOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-foreground hover:bg-surface-elevated font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editingStaff}
+                  className="px-5 py-2 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary-hover shadow-xs active:scale-95 disabled:opacity-50 transition-all flex items-center space-x-1.5"
+                >
+                  {editingStaff ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <span>Save Staff Details</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reset Staff Credentials */}
+      {isResetPasswordOpen && selectedStaffUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-surface border border-border rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-foreground">Reset Staff Credentials</h3>
+                  <p className="text-[11px] text-muted-foreground">{selectedStaffUser.fullName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetPasswordOpen(false)}
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-surface-subtle border border-border text-[11px] text-muted-foreground space-y-1">
+              <p>
+                Provision a new initial password for <span className="font-semibold text-foreground font-mono">{selectedStaffUser.email}</span>.
+              </p>
+              <p className="text-[10px] text-muted-foreground/80">
+                The employee can sign in immediately using these credentials. In accordance with KDPA 2019, they will be required to change this password on next login.
+              </p>
+            </div>
+
+            {resetPasswordError && (
+              <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{resetPasswordError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4 text-xs font-sans">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-foreground font-semibold">New Assigned Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setResetPasswordForm({ ...resetPasswordForm, newPassword: generateStrongPassword() })}
+                    className="text-[11px] text-primary hover:underline font-medium inline-flex items-center space-x-1"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Generate Strong Password</span>
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showResetPassword ? 'text' : 'password'}
+                    required
+                    value={resetPasswordForm.newPassword}
+                    onChange={(e) => setResetPasswordForm({ ...resetPasswordForm, newPassword: e.target.value })}
+                    placeholder="Min 8 characters"
+                    className="w-full bg-surface-subtle border border-border rounded-xl px-3.5 pr-10 py-2.5 text-foreground focus:outline-none focus:border-primary font-mono text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword(!showResetPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="resetMustChange"
+                    checked={resetPasswordForm.mustChangePassword}
+                    onChange={(e) => setResetPasswordForm({ ...resetPasswordForm, mustChangePassword: e.target.checked })}
+                    className="rounded border-border text-primary focus:ring-primary w-3.5 h-3.5 accent-primary"
+                  />
+                  <label htmlFor="resetMustChange" className="text-xs text-muted-foreground select-none cursor-pointer">
+                    Force password change upon employee sign-in
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setIsResetPasswordOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-foreground hover:bg-surface-elevated font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resettingPassword}
+                  className="px-5 py-2 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary-hover shadow-xs active:scale-95 disabled:opacity-50 transition-all flex items-center space-x-1.5"
+                >
+                  {resettingPassword ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Credentials...</span>
+                    </>
+                  ) : (
+                    <span>Set New Password</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile & Tablet Persistent Bottom Navigation Bar */}
+      <BottomNav
+        currentModule={activeModule}
+        onSelectModule={setActiveModule}
+      />
     </div>
   );
 }

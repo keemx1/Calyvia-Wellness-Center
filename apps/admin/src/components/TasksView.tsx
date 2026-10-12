@@ -188,8 +188,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ token, apiUrl }) => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Assign Staff Task</h3>
               <button onClick={() => setIsModalOpen(false)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
@@ -208,7 +208,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ token, apiUrl }) => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-foreground font-semibold mb-1">Category</label>
                   <select

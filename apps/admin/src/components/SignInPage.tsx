@@ -9,11 +9,6 @@ import {
   EyeOff,
   ArrowRight,
   AlertCircle,
-  CheckCircle2,
-  Building2,
-  User,
-  Phone,
-  Briefcase,
   HelpCircle,
   X,
   Sun,
@@ -24,11 +19,8 @@ import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeProvider';
 
 export const SignInPage: React.FC = () => {
-  const { login, requestAccess } = useAuth();
+  const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
-
-  // Mode: 'signin' | 'request-access'
-  const [activeTab, setActiveTab] = useState<'signin' | 'request-access'>('signin');
 
   // Sign In Form State
   const [email, setEmail] = useState('');
@@ -37,23 +29,6 @@ export const SignInPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Request Access Form State
-  const [requestForm, setRequestForm] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    department: 'Clinical Operations',
-    jobTitle: '',
-    requestedRole: 'NURSE',
-    password: '',
-    confirmPassword: '',
-    justification: '',
-  });
-  const [showRequestPassword, setShowRequestPassword] = useState(false);
-  const [isRequesting, setIsRequesting] = useState(false);
-  const [requestSuccess, setRequestSuccess] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
 
   // Forgot Password Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -73,46 +48,6 @@ export const SignInPage: React.FC = () => {
 
     if (!res.success) {
       setErrorMessage(res.error || 'Invalid credentials or account is not authorized.');
-    }
-  };
-
-  const handleRequestSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRequestError(null);
-
-    if (!requestForm.fullName || !requestForm.email || !requestForm.phone || !requestForm.jobTitle) {
-      setRequestError('Please fill in all required fields.');
-      return;
-    }
-
-    if (requestForm.password) {
-      if (requestForm.password.length < 6) {
-        setRequestError('Password must be at least 6 characters long.');
-        return;
-      }
-      if (requestForm.password !== requestForm.confirmPassword) {
-        setRequestError('Password and confirmation do not match.');
-        return;
-      }
-    }
-
-    setIsRequesting(true);
-    const res = await requestAccess({
-      fullName: requestForm.fullName,
-      email: requestForm.email,
-      phone: requestForm.phone,
-      department: requestForm.department,
-      jobTitle: requestForm.jobTitle,
-      requestedRole: requestForm.requestedRole,
-      password: requestForm.password || undefined,
-      justification: requestForm.justification,
-    });
-    setIsRequesting(false);
-
-    if (res.success) {
-      setRequestSuccess(true);
-    } else {
-      setRequestError(res.error || 'Failed to submit access request.');
     }
   };
 
@@ -162,351 +97,116 @@ export const SignInPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex items-center bg-surface-subtle p-1 rounded-2xl border border-border mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('signin');
-              setErrorMessage(null);
-            }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all duration-150 ${
-              activeTab === 'signin'
-                ? 'bg-surface text-primary shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Staff Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('request-access');
-              setRequestError(null);
-              setRequestSuccess(false);
-            }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all duration-150 ${
-              activeTab === 'request-access'
-                ? 'bg-surface text-primary shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Request Access
-          </button>
-        </div>
-
-        {/* Sign In Form */}
-        {activeTab === 'signin' && (
-          <div className="bg-surface border border-border rounded-3xl p-6 sm:p-8 shadow-elevated space-y-6">
-            <div className="space-y-1">
+        {/* Institutional Sign In Form */}
+        <div className="bg-surface border border-border rounded-3xl p-6 sm:p-8 shadow-elevated space-y-6">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-foreground">Personnel Authentication</h2>
-              <p className="text-xs text-muted-foreground">
-                Enter your institutional Calyvia credentials to access assigned clinical modules.
-              </p>
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary-soft text-primary">
+                <Shield className="w-3 h-3" />
+                <span>Admin Provisioned</span>
+              </span>
             </div>
-
-            {errorMessage && (
-              <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2 animate-in fade-in duration-150">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{errorMessage}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSignIn} className="space-y-4">
-              {/* Email Address */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-foreground">
-                  Institutional Email
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    placeholder="e.g. username@calyviawellness.co.ke"
-                    className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-foreground">Password</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowForgotModal(true)}
-                    className="text-[11px] text-primary hover:underline font-medium"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    placeholder="Enter clinical account password"
-                    className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-10 py-2.5 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Remember Session */}
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="rememberMe"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-border text-primary focus:ring-primary/20 w-3.5 h-3.5 accent-primary"
-                />
-                <label htmlFor="rememberMe" className="text-xs text-muted-foreground select-none cursor-pointer">
-                  Maintain session on this clinical workstation
-                </label>
-              </div>
-
-              {/* Sign In Button */}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full mt-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-[0.99] shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Verifying Credentials...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Sign In to EMR</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
+            <p className="text-xs text-muted-foreground">
+              Enter your institutional Calyvia credentials to access assigned clinical and administrative modules.
+            </p>
           </div>
-        )}
 
-        {/* Request Access Form */}
-        {activeTab === 'request-access' && (
-          <div className="bg-surface border border-border rounded-3xl p-6 sm:p-8 shadow-elevated space-y-6">
-            <div className="space-y-1">
-              <h2 className="text-base font-semibold text-foreground">Request Staff Account</h2>
-              <p className="text-xs text-muted-foreground">
-                Private institutional system. Newly submitted accounts require Facility Administration authorization.
-              </p>
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2 animate-in fade-in duration-150">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSignIn} className="space-y-4">
+            {/* Email Address */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-foreground">
+                Institutional Email
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  placeholder="e.g. username@calyviawellness.co.ke"
+                  className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
+                />
+              </div>
             </div>
 
-            {requestSuccess ? (
-              <div className="p-6 rounded-2xl bg-primary-soft border border-primary/20 text-center space-y-3 animate-in zoom-in-95 duration-150">
-                <CheckCircle2 className="w-10 h-10 text-primary mx-auto" />
-                <h3 className="font-semibold text-sm text-foreground">Access Request Received</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Your request has been routed to the Calyvia Facility Administrator and Medical Director for verification. You will be notified once institutional role assignment is completed.
-                </p>
+            {/* Password */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-foreground">Password</label>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveTab('signin');
-                    setRequestSuccess(false);
-                  }}
-                  className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover shadow-xs transition-all"
+                  onClick={() => setShowForgotModal(true)}
+                  className="text-[11px] text-primary hover:underline font-medium"
                 >
-                  Return to Sign In
+                  Forgot password?
                 </button>
               </div>
-            ) : (
-              <>
-                {requestError && (
-                  <div className="p-3 rounded-xl bg-danger-soft border border-danger/20 text-danger text-xs flex items-start space-x-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>{requestError}</span>
-                  </div>
-                )}
+              <div className="relative">
+                <Lock className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="Enter clinical account password"
+                  className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-10 py-2.5 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
 
-                <form onSubmit={handleRequestSubmit} className="space-y-3.5">
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Full Name</label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={requestForm.fullName}
-                        onChange={(e) => setRequestForm({ ...requestForm, fullName: e.target.value })}
-                        required
-                        placeholder="e.g. Dr. Antony Baraka"
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      />
-                    </div>
-                  </div>
+            {/* Remember Session */}
+            <div className="flex items-center space-x-2 pt-1">
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary/20 w-3.5 h-3.5 accent-primary"
+              />
+              <label htmlFor="rememberMe" className="text-xs text-muted-foreground select-none cursor-pointer">
+                Maintain session on this clinical workstation
+              </label>
+            </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Institutional Email</label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="email"
-                        value={requestForm.email}
-                        onChange={(e) => setRequestForm({ ...requestForm, email: e.target.value })}
-                        required
-                        placeholder="e.g. a.baraka@calyviawellness.co.ke"
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Phone Number</label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="tel"
-                        value={requestForm.phone}
-                        onChange={(e) => setRequestForm({ ...requestForm, phone: e.target.value })}
-                        required
-                        placeholder="+254 700 000 000"
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Department</label>
-                    <div className="relative">
-                      <Building2 className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <select
-                        value={requestForm.department}
-                        onChange={(e) => setRequestForm({ ...requestForm, department: e.target.value })}
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      >
-                        <option value="Clinical Operations">Clinical Operations (Psychiatry / Doctors)</option>
-                        <option value="Inpatient Nursing">Inpatient Nursing (Detox Ward)</option>
-                        <option value="Psychological Therapy">Counselling & Psychology</option>
-                        <option value="Admissions & Front Desk">Admissions & Reception</option>
-                        <option value="Pharmacy & Dispensary">Pharmacy & Dispensary</option>
-                        <option value="Billing & Finance">Billing & Cashier</option>
-                        <option value="Stores & Inventory">Stores & Inventory</option>
-                        <option value="Facility Administration">Facility Administration</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Job Title / Designation</label>
-                    <div className="relative">
-                      <Briefcase className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={requestForm.jobTitle}
-                        onChange={(e) => setRequestForm({ ...requestForm, jobTitle: e.target.value })}
-                        required
-                        placeholder="e.g. Registered Clinical Nurse"
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Requested Role & Access Level</label>
-                    <div className="relative">
-                      <Shield className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <select
-                        value={requestForm.requestedRole}
-                        onChange={(e) => setRequestForm({ ...requestForm, requestedRole: e.target.value })}
-                        className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                      >
-                        <option value="NURSE">Nurse / Clinical Detox Ward (NURSE)</option>
-                        <option value="DOCTOR_PSYCHIATRIST">Doctor / Consultant Psychiatrist (DOCTOR_PSYCHIATRIST)</option>
-                        <option value="COUNSELLOR">Addiction Counsellor / Psychologist (COUNSELLOR)</option>
-                        <option value="PHARMACIST">Pharmacist / Dispensary (PHARMACIST)</option>
-                        <option value="ADMISSIONS_FRONT_DESK">Admissions / Reception Front Desk (ADMISSIONS_FRONT_DESK)</option>
-                        <option value="FINANCE_BILLING">Finance / Billing & Cashier (FINANCE_BILLING)</option>
-                        <option value="INVENTORY_STORE">Store & Inventory Manager (INVENTORY_STORE)</option>
-                        <option value="MEDICAL_DIRECTOR">Medical Director / Clinical Head (MEDICAL_DIRECTOR)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-semibold text-foreground">Account Password</label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type={showRequestPassword ? 'text' : 'password'}
-                          value={requestForm.password}
-                          onChange={(e) => setRequestForm({ ...requestForm, password: e.target.value })}
-                          placeholder="Min 6 chars"
-                          className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-8 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-mono"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowRequestPassword(!showRequestPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showRequestPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-xs font-semibold text-foreground">Confirm Password</label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type={showRequestPassword ? 'text' : 'password'}
-                          value={requestForm.confirmPassword}
-                          onChange={(e) => setRequestForm({ ...requestForm, confirmPassword: e.target.value })}
-                          placeholder="Confirm password"
-                          className="w-full bg-surface-subtle border border-border rounded-xl pl-9 pr-3.5 py-2 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-foreground">Justification for Access</label>
-                    <textarea
-                      rows={2}
-                      value={requestForm.justification}
-                      onChange={(e) => setRequestForm({ ...requestForm, justification: e.target.value })}
-                      placeholder="Brief note on your assigned clinical duties or shift schedule"
-                      className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isRequesting}
-                    className="w-full mt-2 py-2.5 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-[0.99] shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-60"
-                  >
-                    {isRequesting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Submitting Request...</span>
-                      </>
-                    ) : (
-                      <span>Submit Authorization Request</span>
-                    )}
-                  </button>
-                </form>
-              </>
-            )}
-          </div>
-        )}
+            {/* Sign In Button */}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full mt-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-[0.99] shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Verifying Credentials...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign In to EMR</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Security & Regulatory Compliance Footer */}

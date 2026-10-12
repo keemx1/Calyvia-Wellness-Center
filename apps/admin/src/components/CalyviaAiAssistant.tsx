@@ -277,7 +277,7 @@ export const CalyviaAiAssistant: React.FC = () => {
   return (
     <>
       {/* Floating Launcher Button */}
-      <div className="fixed bottom-6 right-6 z-40">
+      <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 md:right-8 z-30 pb-safe">
         {!isOpen && (
           <button
             onClick={() => {
@@ -286,7 +286,7 @@ export const CalyviaAiAssistant: React.FC = () => {
             }}
             title="Open Calyvia AI assistant"
             aria-label="Open Calyvia AI assistant"
-            className="group relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-primary hover:bg-primary-hover active:scale-95 text-primary-foreground rounded-full shadow-elevated border border-primary/20 hover:-translate-y-1 transition-all duration-200"
+            className="group relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-primary hover:bg-primary-hover active:scale-95 text-primary-foreground rounded-full shadow-elevated border border-primary/20 hover:-translate-y-1 transition-all duration-200 cursor-pointer focus-visible:ring-4 focus-visible:ring-primary/40 focus-visible:outline-hidden"
           >
             <PulseHeadsetIcon className="w-5 h-5 sm:w-6 sm:h-6 text-primary-foreground group-hover:scale-105 transition-transform duration-200" />
             <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full border-2 border-primary animate-pulse" />
@@ -297,10 +297,10 @@ export const CalyviaAiAssistant: React.FC = () => {
       {/* AI Chat Panel / Popup */}
       {isOpen && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex flex-col bg-surface border border-border rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
+          className={`fixed bottom-20 md:bottom-6 right-2 sm:right-6 md:right-8 z-50 flex flex-col bg-surface border border-border rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
             isMinimized
               ? 'w-72 h-14'
-              : 'w-[420px] max-w-[calc(100vw-2rem)] h-[620px] max-h-[calc(100vh-6rem)]'
+              : 'w-[420px] max-w-[calc(100vw-1rem)] sm:max-w-[calc(100vw-2rem)] h-[580px] max-h-[calc(100vh-7rem)] sm:max-h-[calc(100vh-6rem)]'
           }`}
         >
           {/* Header */}
@@ -334,7 +334,7 @@ export const CalyviaAiAssistant: React.FC = () => {
                   onClick={handleResetChat}
                   title="New Conversation"
                   aria-label="New Conversation"
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
@@ -343,7 +343,7 @@ export const CalyviaAiAssistant: React.FC = () => {
                 onClick={() => setIsMinimized(!isMinimized)}
                 title={isMinimized ? 'Expand' : 'Minimize'}
                 aria-label={isMinimized ? 'Expand' : 'Minimize'}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden cursor-pointer"
               >
                 {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
               </button>
@@ -351,7 +351,7 @@ export const CalyviaAiAssistant: React.FC = () => {
                 onClick={() => setIsOpen(false)}
                 title="Close Assistant"
                 aria-label="Close Assistant"
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-danger hover:bg-danger-soft transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-danger hover:bg-danger-soft transition-colors focus-visible:ring-2 focus-visible:ring-danger focus-visible:outline-hidden cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>

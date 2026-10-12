@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -22,6 +22,9 @@ import {
   ChevronRight,
   ChevronDown,
   X,
+  PanelLeftClose,
+  PanelLeft,
+  Pin,
   LucideIcon,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
@@ -188,7 +191,7 @@ export const NAVIGATION_STRUCTURE: NavigationSection[] = [
   },
 ];
 
-interface SidebarProps {
+export interface SidebarProps {
   currentModule: string;
   onSelectModule: (moduleId: string) => void;
   mobileOpen?: boolean;
@@ -208,8 +211,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { theme } = useTheme();
   const { user, logout } = useAuth();
 
+  // Temporary hover expansion state (Supabase pattern)
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const hoverLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isTouchDevice, setIsTouchDevice] = useState<boolean>(false);
+
+  // Detect touch device on mount to avoid unwanted sticky hover states
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setIsTouchDevice(hasTouch);
+    }
+  }, []);
+
   // Find parent module of a given subId
-  const getParentModuleId = (subId: string): string => {
+  const getParentModuleId = useCallback((subId: string): string => {
     for (const section of NAVIGATION_STRUCTURE) {
       for (const mod of section.modules) {
         if (mod.id === subId) return mod.id;
@@ -217,11 +233,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     }
     return subId;
-  };
+  }, []);
 
   const activeParentId = getParentModuleId(currentModule);
 
-  // Expanded parent modules in sidebar
+  // Expanded parent modules in sidebar accordion
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     if (activeParentId) {
@@ -251,7 +267,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const visibleSections = NAVIGATION_STRUCTURE.map((section) => {
     const modules = section.modules
       .map((mod) => {
-        // If module has submodules, filter submodules by role permission
         if (mod.submodules && mod.submodules.length > 0) {
           const allowedSubmodules = mod.submodules.filter((sub) =>
             canAccessModule(user?.role, sub.id)
@@ -262,7 +277,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             submodules: allowedSubmodules,
           };
         }
-        // Direct module check
         if (!canAccessModule(user?.role, mod.id)) return null;
         return mod;
       })
@@ -294,227 +308,431 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const sidebarContent = (
-    <div
-      className={`${
-        isCollapsed ? 'w-20' : 'w-72'
-      } bg-surface text-foreground h-full flex flex-col border-r border-border select-none overflow-hidden transition-all duration-300`}
-    >
-      {/* Brand Header with Transparent Logo & Collapse Arrow Button */}
-      <div className="p-4 bg-surface border-b border-border flex items-center justify-between">
-        <div className="flex items-center space-x-3 min-w-0 flex-1">
-          <div className="relative w-10 h-10 flex-shrink-0 bg-primary-soft p-1.5 rounded-xl border border-primary/20 shadow-xs flex items-center justify-center">
-            <img
-              src={theme === 'dark' ? '/brand/calyvia-emblem-dark.svg' : '/brand/calyvia-emblem-light.svg'}
-              alt="Calyvia Emblem"
-              width={28}
-              height={28}
-              className="w-7 h-7 object-contain"
-            />
+  // Hover handlers with debounce to prevent jitter / flickering
+  const handleMouseEnter = () => {
+    if (isTouchDevice) return;
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = null;
+    }
+    if (isCollapsed) {
+      setIsHovered(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (isTouchDevice) return;
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current);
+    }
+    hoverLeaveTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 180);
+  };
+
+  // Mobile body scroll lock and escape key handling
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseMobile?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      // Restore focus to header hamburger toggle
+      const btn = document.getElementById('calyvia-mobile-menu-btn');
+      btn?.focus();
+    };
+  }, [mobileOpen, onCloseMobile]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverLeaveTimerRef.current) {
+        clearTimeout(hoverLeaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  /**
+   * Render Sidebar Content
+   * @param isDrawer whether this is rendering inside the mobile sliding drawer
+   */
+  const renderSidebarInner = (isDrawer = false) => {
+    // If inside mobile drawer, it is ALWAYS fully expanded.
+    // In desktop, it is expanded if not collapsed OR if temporarily hovered.
+    const isEffectivelyExpanded = isDrawer || !isCollapsed || isHovered;
+
+    return (
+      <div className="h-full flex flex-col bg-surface text-foreground select-none overflow-hidden">
+        {/* Brand Header */}
+        <div className="h-16 px-3 bg-surface border-b border-border flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center space-x-3 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => handleSelect('dashboard')}
+              title="Calyvia Wellness Center Dashboard"
+              aria-label="Calyvia Wellness Center Dashboard"
+              className="relative w-10 h-10 flex-shrink-0 bg-primary-soft p-1.5 rounded-xl border border-primary/20 shadow-xs flex items-center justify-center cursor-pointer hover:border-primary/50 transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+            >
+              <img
+                src={theme === 'dark' ? '/brand/calyvia-emblem-dark.svg' : '/brand/calyvia-emblem-light.svg'}
+                alt="Calyvia Emblem"
+                width={28}
+                height={28}
+                className="w-7 h-7 object-contain"
+              />
+            </button>
+
+            {isEffectivelyExpanded && (
+              <div className="min-w-0 flex-1 animate-in fade-in-50 duration-150">
+                <h1 className="font-serif text-sm font-bold tracking-tight text-foreground leading-tight truncate">
+                  Calyvia Wellness
+                </h1>
+                <p className="text-[10px] text-muted-foreground font-sans truncate">
+                  Ruiru, Kenya • HMIS / EMR
+                </p>
+              </div>
+            )}
           </div>
-          {!isCollapsed && (
-            <div className="min-w-0 flex-1">
-              <h1 className="font-serif text-base font-bold tracking-tight text-foreground leading-tight truncate">
-                Calyvia Wellness
-              </h1>
-              <p className="text-[11px] text-muted-foreground font-sans truncate">Ruiru, Kenya • HMIS / EMR</p>
-            </div>
+
+          {/* Desktop Pin / Collapse Header Toggle */}
+          {!isDrawer && onToggleCollapse && isEffectivelyExpanded && (
+            <button
+              type="button"
+              onClick={() => {
+                onToggleCollapse();
+                setIsHovered(false);
+              }}
+              title={isCollapsed ? 'Pin sidebar expanded' : 'Collapse sidebar'}
+              aria-label={isCollapsed ? 'Pin sidebar expanded' : 'Collapse sidebar'}
+              aria-expanded={!isCollapsed}
+              className="hidden md:flex p-1.5 rounded-xl border border-border bg-surface-subtle hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-all duration-150 flex-shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+            >
+              {isCollapsed ? (
+                <Pin className="w-4 h-4 text-primary" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4" />
+              )}
+            </button>
+          )}
+
+          {/* Mobile Drawer Close Button */}
+          {isDrawer && onCloseMobile && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="p-1.5 rounded-xl border border-border text-muted-foreground hover:bg-surface-elevated hover:text-foreground transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+              aria-label="Close navigation menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
           )}
         </div>
 
-        {/* Desktop Collapse / Expand Arrow Button */}
-        {onToggleCollapse && (
-          <button
-            onClick={onToggleCollapse}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden md:flex p-1.5 rounded-xl border border-border bg-surface-subtle hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-all duration-150 flex-shrink-0"
-          >
-            {isCollapsed ? (
-              <ChevronRight className="w-4 h-4 text-primary" />
-            ) : (
-              <ChevronLeft className="w-4 h-4" />
-            )}
-          </button>
-        )}
+        {/* Navigation Modules List */}
+        <nav
+          aria-label="Sidebar navigation"
+          className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 space-y-3 text-xs font-sans scrollbar-thin"
+        >
+          {visibleSections.map((section, sIdx) => (
+            <div key={sIdx} className="space-y-1">
+              {/* Category Heading (expanded) or Subtle Divider (collapsed) */}
+              {isEffectivelyExpanded ? (
+                <h2 className="px-3 pt-2 pb-1 text-[10px] uppercase font-bold tracking-wider text-muted-foreground/80 truncate">
+                  {section.category}
+                </h2>
+              ) : (
+                sIdx > 0 && (
+                  <div
+                    className="my-2 mx-1 border-t border-border/60"
+                    aria-hidden="true"
+                  />
+                )
+              )}
 
-        {/* Mobile Close Button */}
-        {onCloseMobile && (
-          <button
-            onClick={onCloseMobile}
-            className="md:hidden p-1.5 rounded-lg text-muted-foreground hover:bg-surface-elevated hover:text-foreground"
-            aria-label="Close menu"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
-      </div>
+              {/* Module Items */}
+              {section.modules.map((mod) => {
+                const Icon = mod.icon;
+                const hasSub = mod.submodules && mod.submodules.length > 0;
+                const isDirectActive = currentModule === mod.id;
+                const isChildActive = mod.submodules?.some((sub) => sub.id === currentModule);
+                const isParentActive = isDirectActive || isChildActive;
+                const isExpanded = !!expandedParents[mod.id];
 
-      {/* Navigation List with 5 Visual Sections & Consolidated 15 Primary Modules */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 text-xs font-sans">
-        {visibleSections.map((section, idx) => (
-          <div key={idx} className="space-y-1">
-            {!isCollapsed && (
-              <h2 className="px-3 text-[10px] uppercase font-bold tracking-wider text-muted-foreground/80">
-                {section.category}
-              </h2>
-            )}
-            {section.modules.map((mod) => {
-              const Icon = mod.icon;
-              const hasSub = mod.submodules && mod.submodules.length > 0;
-              const isDirectActive = currentModule === mod.id;
-              const isChildActive = mod.submodules?.some((sub) => sub.id === currentModule);
-              const isParentActive = isDirectActive || isChildActive;
-              const isExpanded = !!expandedParents[mod.id];
-
-              if (isCollapsed) {
-                // Collapsed state: icon-only button triggering default subfeature
-                const defaultTarget = mod.submodules ? mod.submodules[0].id : mod.id;
-                return (
-                  <button
-                    key={mod.id}
-                    onClick={() => handleSelect(defaultTarget)}
-                    title={mod.name}
-                    aria-label={mod.name}
-                    className={`w-full flex items-center justify-center px-2 py-3 rounded-2xl transition-all duration-150 ${
-                      isParentActive
-                        ? 'bg-primary text-primary-foreground font-semibold shadow-xs dark:shadow-[0_2px_12px_-2px_rgba(0,230,118,0.3)]'
-                        : 'text-muted-foreground hover:bg-surface-subtle hover:text-foreground'
-                    }`}
-                  >
-                    <Icon
-                      className={`w-4 h-4 flex-shrink-0 ${
-                        isParentActive ? 'text-primary-foreground' : 'text-muted-foreground/70'
-                      }`}
-                    />
-                  </button>
-                );
-              }
-
-              // Expanded state: accordion with primary module and nested submodules
-              return (
-                <div key={mod.id} className="space-y-0.5">
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => {
-                        if (hasSub) {
-                          // If already on one of its children or direct, toggle expand
-                          // Otherwise navigate to default child and ensure expanded
-                          if (isParentActive) {
-                            toggleParentExpand(mod.id);
-                          } else {
-                            const defaultTarget = mod.submodules ? mod.submodules[0].id : mod.id;
-                            setExpandedParents((prev) => ({ ...prev, [mod.id]: true }));
-                            handleSelect(defaultTarget);
-                          }
-                        } else {
-                          handleSelect(mod.id);
-                        }
-                      }}
-                      title={mod.name}
-                      aria-label={mod.name}
-                      className={`flex-1 flex items-center justify-between space-x-2.5 px-3 py-2 rounded-2xl transition-all duration-150 text-left ${
-                        isParentActive
-                          ? 'bg-primary/10 text-primary font-semibold'
-                          : 'text-muted-foreground hover:bg-surface-subtle hover:text-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5 min-w-0">
+                // Collapsed Rail Item (when not effectively expanded)
+                if (!isEffectivelyExpanded) {
+                  const defaultTarget = mod.submodules ? mod.submodules[0].id : mod.id;
+                  return (
+                    <div key={mod.id} className="relative group flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSelect(defaultTarget)}
+                        aria-label={mod.name}
+                        aria-current={isParentActive ? 'page' : undefined}
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden ${
+                          isParentActive
+                            ? 'bg-primary text-primary-foreground font-semibold shadow-xs dark:shadow-[0_2px_12px_-2px_rgba(0,230,118,0.3)]'
+                            : 'text-muted-foreground hover:bg-surface-elevated hover:text-foreground'
+                        }`}
+                      >
                         <Icon
                           className={`w-4 h-4 flex-shrink-0 ${
-                            isParentActive ? 'text-primary' : 'text-muted-foreground/70'
+                            isParentActive ? 'text-primary-foreground' : 'text-muted-foreground/80'
                           }`}
                         />
-                        <span className="truncate">{mod.name}</span>
+                      </button>
+
+                      {/* Accessible Hover Tooltip for Collapsed Rail */}
+                      <div
+                        role="tooltip"
+                        aria-hidden="true"
+                        className="absolute left-full ml-3 px-2.5 py-1.5 rounded-lg bg-surface border border-border shadow-elevated text-xs font-medium text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 flex items-center gap-1.5"
+                      >
+                        <span>{mod.name}</span>
+                        {hasSub && (
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            ({mod.submodules!.length})
+                          </span>
+                        )}
                       </div>
-                      {hasSub && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleParentExpand(mod.id);
-                          }}
-                          className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground/80 hover:text-foreground"
-                          aria-label={isExpanded ? `Collapse ${mod.name}` : `Expand ${mod.name}`}
-                        >
-                          <ChevronDown
-                            className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                              isExpanded ? 'rotate-180 text-primary' : ''
+                    </div>
+                  );
+                }
+
+                // Expanded Item with full labels and nested submodules accordion
+                return (
+                  <div key={mod.id} className="space-y-0.5">
+                    <div className="flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasSub) {
+                            if (isParentActive) {
+                              toggleParentExpand(mod.id);
+                            } else {
+                              const defaultTarget = mod.submodules ? mod.submodules[0].id : mod.id;
+                              setExpandedParents((prev) => ({ ...prev, [mod.id]: true }));
+                              handleSelect(defaultTarget);
+                            }
+                          } else {
+                            handleSelect(mod.id);
+                          }
+                        }}
+                        title={mod.name}
+                        aria-label={mod.name}
+                        aria-current={isParentActive ? 'page' : undefined}
+                        className={`flex-1 flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-150 text-left min-h-[40px] focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden cursor-pointer ${
+                          isParentActive
+                            ? 'bg-primary/10 text-primary font-semibold border-l-2 border-primary'
+                            : 'text-muted-foreground hover:bg-surface-elevated hover:text-foreground'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <Icon
+                            className={`w-4 h-4 flex-shrink-0 ${
+                              isParentActive ? 'text-primary' : 'text-muted-foreground/80'
                             }`}
                           />
-                        </button>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Submenu Items */}
-                  {hasSub && isExpanded && (
-                    <div className="ml-5 pl-3 border-l border-border/70 space-y-0.5 py-1 animate-in fade-in-50 duration-150">
-                      {mod.submodules!.map((sub) => {
-                        const isSubActive = currentModule === sub.id;
-                        return (
+                          <span className="truncate">{mod.name}</span>
+                        </div>
+                        {hasSub && (
                           <button
-                            key={sub.id}
-                            onClick={() => handleSelect(sub.id)}
-                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition-all duration-150 truncate block ${
-                              isSubActive
-                                ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-surface-subtle'
-                            }`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleParentExpand(mod.id);
+                            }}
+                            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden cursor-pointer"
+                            aria-label={isExpanded ? `Collapse ${mod.name}` : `Expand ${mod.name}`}
                           >
-                            {sub.name}
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                                isExpanded ? 'rotate-180 text-primary' : ''
+                              }`}
+                            />
                           </button>
-                        );
-                      })}
+                        )}
+                      </button>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
 
-      {/* Minimal Logout Button at Bottom of Sidebar */}
-      <div className="p-3 bg-surface-subtle border-t border-border">
-        <button
-          onClick={handleLogout}
-          disabled={isLoggingOut}
-          title="Logout from Calyvia HMIS"
-          aria-label="Logout"
-          className={`w-full flex items-center ${
-            isCollapsed ? 'justify-center p-2.5' : 'space-x-2.5 px-3.5 py-2.5'
-          } rounded-xl border border-border bg-surface hover:bg-danger-soft hover:border-danger/30 text-muted-foreground hover:text-danger active:scale-[0.98] transition-all duration-150 cursor-pointer shadow-xs disabled:opacity-50`}
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          {!isCollapsed && (
-            <span className="text-xs font-semibold truncate">
-              {isLoggingOut ? 'Signing out...' : 'Logout'}
-            </span>
+                    {/* Submenu Items */}
+                    {hasSub && isExpanded && (
+                      <div className="ml-5 pl-3 border-l border-border/70 space-y-0.5 py-1 animate-in fade-in-50 duration-150">
+                        {mod.submodules!.map((sub) => {
+                          const isSubActive = currentModule === sub.id;
+                          return (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              onClick={() => handleSelect(sub.id)}
+                              aria-current={isSubActive ? 'page' : undefined}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 truncate block min-h-[32px] focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden cursor-pointer ${
+                                isSubActive
+                                  ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-surface-elevated'
+                              }`}
+                            >
+                              {sub.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        {/* Bottom Utility & Account Section */}
+        <div className="p-2.5 bg-surface-subtle border-t border-border flex-shrink-0 space-y-1.5">
+          {!isEffectivelyExpanded ? (
+            /* Collapsed Bottom Controls */
+            <div className="space-y-1.5 flex flex-col items-center">
+              {onToggleCollapse && (
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleCollapse();
+                      setIsHovered(false);
+                    }}
+                    title="Pin sidebar expanded"
+                    aria-label="Pin sidebar expanded"
+                    className="w-10 h-10 rounded-xl border border-border bg-surface hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-all duration-150 flex items-center justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+                  >
+                    <PanelLeft className="w-4 h-4 text-primary" />
+                  </button>
+                  <div
+                    role="tooltip"
+                    aria-hidden="true"
+                    className="absolute left-full ml-3 px-2.5 py-1 rounded-lg bg-surface border border-border shadow-elevated text-xs font-medium text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50"
+                  >
+                    Pin sidebar expanded
+                  </div>
+                </div>
+              )}
+
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  className="w-10 h-10 rounded-xl border border-border bg-surface hover:bg-danger-soft hover:border-danger/30 text-muted-foreground hover:text-danger active:scale-[0.98] transition-all duration-150 flex items-center justify-center cursor-pointer shadow-xs disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-danger focus-visible:outline-hidden"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+                <div
+                  role="tooltip"
+                  aria-hidden="true"
+                  className="absolute left-full ml-3 px-2.5 py-1 rounded-lg bg-surface border border-border shadow-elevated text-xs font-medium text-danger whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50"
+                >
+                  Sign out
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Expanded Bottom Controls */
+            <div className="space-y-1.5">
+              {!isDrawer && onToggleCollapse && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleCollapse();
+                    setIsHovered(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-surface-elevated border border-border/60 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
+                >
+                  <span className="font-medium">Collapse sidebar</span>
+                  <PanelLeftClose className="w-4 h-4 text-muted-foreground" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                title="Logout from Calyvia HMIS"
+                aria-label="Sign out"
+                className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl border border-border bg-surface hover:bg-danger-soft hover:border-danger/30 text-muted-foreground hover:text-danger active:scale-[0.98] transition-all duration-150 cursor-pointer shadow-xs disabled:opacity-50 min-h-[40px] focus-visible:ring-2 focus-visible:ring-danger focus-visible:outline-hidden"
+              >
+                <LogOut className="w-4 h-4 flex-shrink-0" />
+                <span className="text-xs font-semibold truncate">
+                  {isLoggingOut ? 'Signing out...' : 'Sign out'}
+                </span>
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
-      {/* Desktop Persistent Sidebar */}
-      <aside className="hidden md:flex flex-shrink-0 h-screen sticky top-0 z-30 transition-all duration-300">
-        {sidebarContent}
+      {/* =========================================================================
+          DESKTOP / TABLET SIDEBAR (SUPABASE PATTERN)
+          Outer <aside> maintains a fixed flex base width in document flow.
+          When collapsed, hover temporarily expands the inner container as an overlay,
+          preventing the main dashboard content from shifting.
+         ========================================================================= */}
+      <aside
+        role="navigation"
+        aria-label="Main Navigation"
+        className={`hidden md:flex flex-col flex-shrink-0 relative z-30 transition-[width] duration-200 ease-in-out ${
+          isCollapsed ? 'w-[64px]' : 'w-64'
+        }`}
+      >
+        <div
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className={`h-screen border-r border-border transition-all duration-200 ease-in-out ${
+            isCollapsed && isHovered && !isTouchDevice
+              ? 'absolute top-0 left-0 w-64 shadow-2xl z-40 bg-surface'
+              : isCollapsed
+              ? 'w-[64px]'
+              : 'w-64'
+          }`}
+        >
+          {renderSidebarInner(false)}
+        </div>
       </aside>
 
-      {/* Mobile Sliding Drawer */}
+      {/* =========================================================================
+          MOBILE SLIDING DRAWER (< 768px)
+          Hidden by default. Opens on mobile hamburger button with smooth slide-in,
+          backdrop blur, touch gestures, escape key, and body scroll locking.
+         ========================================================================= */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          {/* Backdrop */}
+        <div
+          className="fixed inset-0 z-50 md:hidden flex"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mobile Navigation Drawer"
+        >
+          {/* Backdrop with blur */}
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-200"
             onClick={onCloseMobile}
+            aria-hidden="true"
           />
-          {/* Sidebar Drawer */}
-          <div className="relative z-10 w-72 max-w-[85vw] h-full shadow-2xl animate-in slide-in-from-left duration-200">
-            {sidebarContent}
+
+          {/* Sliding Sidebar Drawer */}
+          <div className="relative z-10 w-72 max-w-[85vw] h-full shadow-2xl animate-in slide-in-from-left duration-200 border-r border-border">
+            {renderSidebarInner(true)}
           </div>
         </div>
       )}

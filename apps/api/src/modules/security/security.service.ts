@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../database/prisma.service';
@@ -204,104 +204,10 @@ export class SecurityService {
     }
   }
 
-  async requestAccess(dto: RequestAccessDto) {
-    const email = dto.email.toLowerCase().trim();
-
-    // Check if identity already exists in application database
-    let existingUser = null;
-    try {
-      if (this.prisma && this.prisma.user) {
-        existingUser = await this.prisma.user.findUnique({
-          where: { email },
-        });
-      }
-    } catch {}
-
-    if (existingUser) {
-      if (existingUser.approvalStatus === 'APPROVED' && existingUser.isActive) {
-        throw new BadRequestException('An active institutional account is already registered with this email address.');
-      }
-      if (existingUser.approvalStatus === 'PENDING') {
-        return {
-          success: true,
-          message: 'Your authorization request has already been registered and is pending administrator review.',
-        };
-      }
-      if (existingUser.approvalStatus === 'REJECTED') {
-        throw new BadRequestException('An access request with this email was previously declined. Please contact administration.');
-      }
-    }
-
-    // Determine requested role from input or department mapping
-    const rawRole = dto.requestedRole || this.mapDepartmentToRole(dto.department);
-    const validRoles = Object.values(UserRole);
-    // Disallow self-assignment of SUPER_ADMIN privilege
-    const requestedRole = (validRoles.includes(rawRole as UserRole) && rawRole !== UserRole.SUPER_ADMIN)
-      ? (rawRole as UserRole)
-      : UserRole.NURSE;
-
-    const initialPassword = dto.password || 'Calyvia#2026';
-    const passwordHash = await this.hashPassword(initialPassword);
-
-    try {
-      if (this.prisma && this.prisma.user) {
-        const createdUser = await this.prisma.user.create({
-          data: {
-            email,
-            passwordHash,
-            role: requestedRole,
-            fullName: dto.fullName,
-            phone: dto.phone,
-            isActive: false, // Inactive pending administrator review
-            approvalStatus: 'PENDING',
-            requestedRole,
-            mustChangePassword: true,
-          },
-        });
-
-        // Create accompanying staff profile
-        if ((this.prisma as any).staffProfile) {
-          await (this.prisma as any).staffProfile.create({
-            data: {
-              userId: createdUser.id,
-              department: dto.department,
-              jobTitle: dto.jobTitle,
-              nationalIdEncrypted: 'PENDING_HR_VERIFICATION',
-              dateJoined: new Date(),
-            },
-          });
-        }
-
-        // Record security audit event
-        if ((this.prisma as any).auditLog) {
-          await (this.prisma as any).auditLog.create({
-            data: {
-              userId: createdUser.id,
-              role: requestedRole,
-              action: 'EMPLOYEE_REGISTRATION_SUBMITTED',
-              entityName: 'users',
-              entityId: createdUser.id,
-              newValues: {
-                email,
-                requestedRole,
-                department: dto.department,
-                jobTitle: dto.jobTitle,
-                justification: dto.justification,
-                submittedAt: new Date().toISOString(),
-              },
-            },
-          });
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to create pending employee registration:', err.message);
-      throw new BadRequestException('Failed to process employee registration request.');
-    }
-
-    return {
-      success: true,
-      message: 'Access request submitted successfully. A Calyvia facility administrator will review your credentials and verify institutional authorization before your account is activated.',
-    };
+  async requestAccess(_dto: RequestAccessDto) {
+    throw new ForbiddenException(
+      'Self-service staff account registration has been disabled. All institutional staff accounts and credentials must be provisioned directly by an authorized Facility Administrator.',
+    );
   }
 
   async getPendingRequests() {

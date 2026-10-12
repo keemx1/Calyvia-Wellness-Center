@@ -3,7 +3,7 @@ import { SecurityService } from './security.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
 import { UserRole, canAccessModule, hasPermission, Permission } from '@calyvia/shared';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 
 describe('SecurityService (Authentication & Password Security)', () => {
   let service: SecurityService;
@@ -106,20 +106,17 @@ describe('SecurityService (Authentication & Password Security)', () => {
     ).rejects.toThrow('User account has been deactivated');
   });
 
-  it('should queue access request successfully', async () => {
-    mockPrisma.staffTask = { create: jest.fn().mockResolvedValue({ id: 'task-001' }) };
-
-    const res = await service.requestAccess({
-      fullName: 'Jane Muthoni',
-      email: 'jane.muthoni@calyviawellness.co.ke',
-      phone: '+254712345678',
-      department: 'Clinical Operations',
-      jobTitle: 'Resident Medical Officer',
-      justification: 'New clinical shift rotation in detox ward',
-    });
-
-    expect(res.success).toBe(true);
-    expect(res.message).toContain('Access request submitted');
+  it('should reject self-service access request with ForbiddenException (public registration disabled)', async () => {
+    await expect(
+      service.requestAccess({
+        fullName: 'Jane Muthoni',
+        email: 'jane.muthoni@calyviawellness.co.ke',
+        phone: '+254712345678',
+        department: 'Clinical Operations',
+        jobTitle: 'Resident Medical Officer',
+        justification: 'New clinical shift rotation in detox ward',
+      }),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   describe('Institutional Role-Based Access Control (RBAC) Module Boundaries', () => {

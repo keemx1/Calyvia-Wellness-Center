@@ -301,33 +301,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const requestAccess = async (data: RequestAccessData): Promise<{ success: boolean; message?: string; error?: string }> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-
-    try {
-      const res = await fetch(`${apiUrl}/auth/request-access`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-
-      const body = await res.json().catch(() => ({}));
-
-      if (res.ok) {
-        return { success: true, message: body.message };
-      } else {
-        return {
-          success: false,
-          error: Array.isArray(body.message) ? body.message.join(', ') : body.message || 'Access request was rejected by server.',
-        };
-      }
-    } catch {
-      // Fallback for standalone/offline deployments
-    }
-
+  const requestAccess = async (_data: RequestAccessData): Promise<{ success: boolean; message?: string; error?: string }> => {
     return {
-      success: true,
-      message: 'Access request submitted successfully. A Calyvia facility administrator will review your credentials and verify institutional authorization.',
+      success: false,
+      error: 'Self-service staff account registration is disabled. Staff accounts and credentials must be provisioned directly by an authorized Facility Administrator.',
     };
   };
 

@@ -484,11 +484,11 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
 
       {/* Modal: New Consent */}
       {modalType === 'consent' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Record Digital Patient Consent</h3>
-              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
+              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -569,11 +569,11 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
 
       {/* Modal: Process Discharge */}
       {modalType === 'discharge' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Process Formal Inpatient Discharge</h3>
-              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
+              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -655,11 +655,11 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
 
       {/* Modal: Checkin */}
       {modalType === 'checkin' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
               <h3 className="font-serif text-lg font-bold text-foreground">Log 90-Day Cadence Check-in</h3>
-              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground">
+              <button onClick={() => setModalType(null)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
                 <X className="w-5 h-5" />
               </button>
             </div>

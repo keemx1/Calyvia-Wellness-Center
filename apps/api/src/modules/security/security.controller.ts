@@ -32,9 +32,9 @@ export class SecurityController {
   }
 
   @Post('request-access')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Submit personnel access request for administrator authorization' })
-  @ApiResponse({ status: 200, description: 'Access request queued for administrator review' })
+  @HttpCode(HttpStatus.FORBIDDEN)
+  @ApiOperation({ summary: 'RETIRED: Self-service staff registration is disabled' })
+  @ApiResponse({ status: 403, description: 'Self-service registration disabled' })
   async requestAccess(@Body() dto: RequestAccessDto) {
     return this.securityService.requestAccess(dto);
   }
