@@ -235,9 +235,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (!res.ok) {
         setIsLoading(false);
+        const rawMessage = Array.isArray(data.message) ? data.message.join(' ') : data.message;
+        // Wrong email/password must read as plain "invalid credentials";
+        // specific account states (pending approval, declined, suspended) keep their own messages.
+        const isGenericAuthFailure =
+          res.status === 401 && (!rawMessage || /invalid (email or )?password/i.test(rawMessage));
         return {
           success: false,
-          error: data.message || 'Authentication failed. Please verify your institutional credentials.',
+          error: isGenericAuthFailure
+            ? 'Invalid credentials. Please verify your institutional email and password.'
+            : rawMessage || 'Authentication failed. Please verify your institutional credentials.',
         };
       }
 
