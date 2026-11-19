@@ -1,54 +1,182 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, ServiceUnavailableException, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { KenyaUtils, CommunicationChannel } from '@calyvia/shared';
+import {
+  createSmsProvider,
+  createWhatsAppProvider,
+  bootstrapWhatsApp,
+  SmsProvider,
+  WhatsAppProvider,
+  getBaileysGateway,
+} from './providers';
 
 export interface SendMessageDto {
   recipient: string;
   channel: CommunicationChannel;
+  /** Kept for API compatibility. SMS/WhatsApp have no subject line, so it is not persisted. */
   subject?: string;
   body: string;
+  /** 'PATIENT' | 'FAMILY' | 'STAFF'. Stored in communication_logs.recipient_type. */
+  recipientType?: string;
 }
 
+/**
+ * Shape the admin UI (CommunicationView.tsx) renders. The underlying table uses
+ * different column names, so we translate on both the write and the read path.
+ */
+export interface CommunicationLogView {
+  id: string;
+  recipient: string;
+  channel: string;
+  body: string;
+  providerRef: string | null;
+  status: string;
+  provider: string;
+  sentAt: Date | string;
+  costKes: number;
+}
+
+const DEFAULT_COST_KES = 1.0;
+
 @Injectable()
-export class CommunicationService {
-  constructor(private prisma: PrismaService) {}
+export class CommunicationService implements OnModuleInit {
+  private readonly logger = new Logger(CommunicationService.name);
+  private readonly smsProvider: SmsProvider;
+  private readonly whatsappProvider: WhatsAppProvider;
+
+  constructor(private prisma: PrismaService) {
+    this.smsProvider = createSmsProvider();
+    this.whatsappProvider = createWhatsAppProvider();
+    this.logger.log(
+      `Channel drivers selected -> SMS: ${this.smsProvider.name}, WhatsApp: ${this.whatsappProvider.name}`,
+    );
+  }
+
+  async onModuleInit() {
+    // Bring the WhatsApp socket up early so it is paired/connected when we need it.
+    await bootstrapWhatsApp();
+  }
 
   async sendMessage(dto: SendMessageDto) {
-    const normalizedRecipient =
-      dto.channel === CommunicationChannel.SMS || dto.channel === CommunicationChannel.WHATSAPP
-        ? KenyaUtils.normalizePhoneNumber(dto.recipient)
-        : dto.recipient;
+    const body = (dto.body || '').trim();
+    if (!body) throw new BadRequestException('Message body is required.');
+    if (!dto.recipient?.trim()) throw new BadRequestException('Recipient is required.');
+
+    const channel = String(dto.channel || '').toUpperCase();
+    const isMsisdnChannel = channel === 'SMS' || channel === 'WHATSAPP';
+    const recipient = isMsisdnChannel
+      ? KenyaUtils.normalizePhoneNumber(dto.recipient)
+      : dto.recipient.trim();
+
+    if (isMsisdnChannel && !/^\+\d{9,15}$/.test(recipient)) {
+      throw new BadRequestException(
+        `Recipient "${dto.recipient}" is not a valid Kenyan phone number (expected e.g. 0712345678).`,
+      );
+    }
+
+    // Reject unsupported channels before touching a provider or the database.
+    if (channel === 'EMAIL') {
+      throw new BadRequestException('Email delivery is not implemented yet. Use SMS or WhatsApp.');
+    }
+    if (channel !== 'SMS' && channel !== 'WHATSAPP') {
+      throw new BadRequestException(`Unsupported channel "${dto.channel}".`);
+    }
+
+    let providerName = channel === 'SMS' ? this.smsProvider.name : this.whatsappProvider.name;
+    let providerMessageId: string | null = null;
+    let deliveryStatus: 'QUEUED' | 'SENT' | 'FAILED' = 'FAILED';
+    // null = "the driver reported no cost"; a driver reporting 0 (WhatsApp is free)
+    // must stay 0 rather than falling back to the DB default.
+    let costKes: number | null = null;
+    let raw: unknown;
+    let dispatchError: string | null = null;
 
     try {
-      if (this.prisma && this.prisma.communicationLog) {
-        return await this.prisma.communicationLog.create({
-          data: {
-            recipient: normalizedRecipient,
-            channel: dto.channel as any,
-            subject: dto.subject || null,
-            body: dto.body,
-            status: 'DELIVERED',
-            providerRef: `GATEWAY-REF-${Date.now()}`,
-          },
-        });
+      const res =
+        channel === 'SMS'
+          ? await this.smsProvider.send({ to: recipient, body })
+          : await this.whatsappProvider.send({ to: recipient, body });
+
+      providerName = res.provider;
+      providerMessageId = res.providerMessageId;
+      deliveryStatus = res.status;
+      costKes = res.costKes;
+      raw = res.raw;
+
+      if (deliveryStatus === 'FAILED') {
+        dispatchError =
+          (raw as any)?.error || `Delivery to ${recipient} was rejected by ${res.provider}.`;
       }
-      throw new Error('Database service unavailable');
     } catch (err: any) {
-      throw new Error(`Failed to send communication: ${err.message}`);
+      // A driver that cannot be constructed at all (missing credentials/package) lands here.
+      dispatchError = err?.message || String(err);
+      deliveryStatus = 'FAILED';
+    }
+
+    // Persist using the real column names of public.communication_logs.
+    const record = await this.prisma.communicationLog.create({
+      data: {
+        recipientType: (dto.recipientType || 'PATIENT').toUpperCase(),
+        recipientPhone: recipient,
+        messageType: channel,
+        messageBody: body,
+        provider: providerName.toUpperCase(),
+        providerMessageId,
+        deliveryStatus,
+        sentAt: new Date(),
+        costKes: costKes ?? DEFAULT_COST_KES,
+      },
+    });
+
+    if (deliveryStatus === 'FAILED') {
+      this.logger.warn(`Dispatch to ${recipient} via ${providerName} FAILED. Raw: ${JSON.stringify(raw ?? {})}`);
+      // The FAILED row written above is kept as an audit trail, but the caller must
+      // never be told the message went out.
+      throw new ServiceUnavailableException(
+        dispatchError || `Delivery to ${recipient} failed via ${providerName}.`,
+      );
+    }
+
+    return this.toView(record);
+  }
+
+  async getRecentLogs(): Promise<CommunicationLogView[]> {
+    try {
+      const rows = await this.prisma.communicationLog.findMany({
+        orderBy: { sentAt: 'desc' },
+        take: 50,
+      });
+      return (rows || []).map((r: any) => this.toView(r));
+    } catch (err) {
+      this.logger.warn(`Communication logs fetch error: ${(err as any)?.message || err}`);
+      return [];
     }
   }
 
-  async getRecentLogs() {
-    try {
-      if (this.prisma && this.prisma.communicationLog) {
-        return await this.prisma.communicationLog.findMany({
-          orderBy: { sentAt: 'desc' },
-          take: 50,
-        });
-      }
-    } catch (err) {
-      console.warn('Communication logs fetch error:', err);
-    }
-    return [];
+  /** Live status of the WhatsApp (Baileys) session, including pairing material. */
+  getWhatsAppStatus() {
+    return getBaileysGateway().getStatus();
+  }
+
+  /** Request a WhatsApp pairing code for a phone number (headless linking). */
+  async requestWhatsAppPairing(phone: string) {
+    const normalized = KenyaUtils.normalizePhoneNumber(phone);
+    const code = await getBaileysGateway().requestPairingCode(normalized);
+    return { phone: normalized, pairingCode: code };
+  }
+
+  /** Translate a DB row (snake or camel) into the shape the admin UI expects. */
+  private toView(row: any): CommunicationLogView {
+    return {
+      id: row.id,
+      recipient: row.recipientPhone ?? row.recipient_phone ?? '',
+      channel: row.messageType ?? row.message_type ?? '',
+      body: row.messageBody ?? row.message_body ?? '',
+      providerRef: row.providerMessageId ?? row.provider_message_id ?? null,
+      status: row.deliveryStatus ?? row.delivery_status ?? 'SENT',
+      provider: row.provider ?? 'MOCK',
+      sentAt: row.sentAt ?? row.sent_at ?? '',
+      costKes: Number(row.costKes ?? row.cost_kes ?? 0),
+    };
   }
 }

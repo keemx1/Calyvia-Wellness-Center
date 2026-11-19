@@ -11,3 +11,8 @@ coverage/
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# WhatsApp (Baileys) login session - this IS a credential for the linked account.
+# Anyone with these files can impersonate the clinic's WhatsApp number. Never commit.
+.baileys-auth/
+auth_info_baileys/
