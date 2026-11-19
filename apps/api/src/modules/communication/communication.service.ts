@@ -1,12 +1,11 @@
 import { Injectable, BadRequestException, ServiceUnavailableException, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { KenyaUtils, CommunicationChannel } from '@calyvia/shared';
+import { SystemSettingsService } from '../system-admin/settings.service';
 import {
   createSmsProvider,
   createWhatsAppProvider,
   bootstrapWhatsApp,
-  SmsProvider,
-  WhatsAppProvider,
   getBaileysGateway,
 } from './providers';
 
@@ -41,20 +40,15 @@ const DEFAULT_COST_KES = 1.0;
 @Injectable()
 export class CommunicationService implements OnModuleInit {
   private readonly logger = new Logger(CommunicationService.name);
-  private readonly smsProvider: SmsProvider;
-  private readonly whatsappProvider: WhatsAppProvider;
 
-  constructor(private prisma: PrismaService) {
-    this.smsProvider = createSmsProvider();
-    this.whatsappProvider = createWhatsAppProvider();
-    this.logger.log(
-      `Channel drivers selected -> SMS: ${this.smsProvider.name}, WhatsApp: ${this.whatsappProvider.name}`,
-    );
-  }
+  constructor(
+    private prisma: PrismaService,
+    private settings: SystemSettingsService,
+  ) {}
 
   async onModuleInit() {
     // Bring the WhatsApp socket up early so it is paired/connected when we need it.
-    await bootstrapWhatsApp();
+    await bootstrapWhatsApp(this.settings);
   }
 
   async sendMessage(dto: SendMessageDto) {
@@ -82,7 +76,9 @@ export class CommunicationService implements OnModuleInit {
       throw new BadRequestException(`Unsupported channel "${dto.channel}".`);
     }
 
-    let providerName = channel === 'SMS' ? this.smsProvider.name : this.whatsappProvider.name;
+    // Drivers are resolved per send so a gateway config change takes effect
+    // immediately, without restarting the API.
+    let providerName = 'unknown';
     let providerMessageId: string | null = null;
     let deliveryStatus: 'QUEUED' | 'SENT' | 'FAILED' = 'FAILED';
     // null = "the driver reported no cost"; a driver reporting 0 (WhatsApp is free)
@@ -92,20 +88,29 @@ export class CommunicationService implements OnModuleInit {
     let dispatchError: string | null = null;
 
     try {
-      const res =
-        channel === 'SMS'
-          ? await this.smsProvider.send({ to: recipient, body })
-          : await this.whatsappProvider.send({ to: recipient, body });
-
-      providerName = res.provider;
-      providerMessageId = res.providerMessageId;
-      deliveryStatus = res.status;
-      costKes = res.costKes;
-      raw = res.raw;
+      if (channel === 'SMS') {
+        const driver = await createSmsProvider(this.settings);
+        providerName = driver.name;
+        const res = await driver.send({ to: recipient, body });
+        providerName = res.provider;
+        providerMessageId = res.providerMessageId;
+        deliveryStatus = res.status;
+        costKes = res.costKes;
+        raw = res.raw;
+      } else {
+        const driver = await createWhatsAppProvider(this.settings);
+        providerName = driver.name;
+        const res = await driver.send({ to: recipient, body });
+        providerName = res.provider;
+        providerMessageId = res.providerMessageId;
+        deliveryStatus = res.status;
+        costKes = res.costKes;
+        raw = res.raw;
+      }
 
       if (deliveryStatus === 'FAILED') {
         dispatchError =
-          (raw as any)?.error || `Delivery to ${recipient} was rejected by ${res.provider}.`;
+          (raw as any)?.error || `Delivery to ${recipient} was rejected by ${providerName}.`;
       }
     } catch (err: any) {
       // A driver that cannot be constructed at all (missing credentials/package) lands here.

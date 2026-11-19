@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { SmsProvider, SmsSendInput, SmsSendResult, countSmsSegments } from './sms-provider';
+import { ConfigResolver } from './config-resolver';
 
 /**
  * ByteWave Networks bulk SMS driver (https://portal.bytewavenetworks.com).
@@ -7,21 +8,25 @@ import { SmsProvider, SmsSendInput, SmsSendResult, countSmsSegments } from './sm
  * ⚠️ SPEC NOT YET CONFIRMED
  * ByteWave publishes no public API documentation — the endpoint, auth scheme and
  * field names live behind the login at portal.bytewavenetworks.com (API/Developers
- * menu). Until their spec is pasted in, the request shape is fully configurable via
- * environment variables so the only code change needed is adjusting these defaults.
+ * menu). Until their spec is pasted in, the request shape is fully configurable so
+ * the only change needed is adjusting these names.
  *
- * Config (all optional except the first two):
- *   BYTEWAVE_API_URL        Full endpoint URL. Enables this driver.
- *   BYTEWAVE_API_KEY        API key / token issued in the portal.
- *   BYTEWAVE_SENDER_ID      Registered sender ID or shortcode (default CALYVIA).
- *   BYTEWAVE_AUTH_STYLE     query | bearer | header   (default query)
- *   BYTEWAVE_KEY_PARAM      Param name when AUTH_STYLE=query   (default apikey)
- *   BYTEWAVE_KEY_HEADER     Header name when AUTH_STYLE=header (default Authorization)
- *   BYTEWAVE_BODY_STYLE     json | form | query        (default json)
- *   BYTEWAVE_PARAM_TO       Recipient field name (default mobile)
- *   BYTEWAVE_PARAM_MESSAGE  Message field name  (default message)
- *   BYTEWAVE_PARAM_SENDER   Sender field name   (default sender)
- *   BYTEWAVE_ID_FIELD       Response field holding the gateway message id (default id)
+ * Config is resolved per send via `ConfigResolver`: the deployment environment wins,
+ * `system_settings` (admin UI) is the fallback. That is what lets an operator rotate
+ * the API key without a redeploy.
+ *
+ * Setting key                          Env var              Default
+ *   gateway.sms.bytewave.api_url       BYTEWAVE_API_URL     (required)
+ *   gateway.sms.bytewave.api_key       BYTEWAVE_API_KEY     (required)
+ *   gateway.sms.bytewave.sender_id     BYTEWAVE_SENDER_ID   CALYVIA
+ *   -                                  BYTEWAVE_AUTH_STYLE  query | bearer | header
+ *   -                                  BYTEWAVE_KEY_PARAM   apikey
+ *   -                                  BYTEWAVE_KEY_HEADER  Authorization
+ *   -                                  BYTEWAVE_BODY_STYLE  json | form | query
+ *   -                                  BYTEWAVE_PARAM_TO    mobile
+ *   -                                  BYTEWAVE_PARAM_MESSAGE message
+ *   -                                  BYTEWAVE_PARAM_SENDER  sender
+ *   -                                  BYTEWAVE_ID_FIELD      id
  *
  * Kenyan panels in this class commonly accept a query-string API such as
  *   GET  /api?apikey=KEY&sender=CALYVIA&mobile=254712345678&message=Hello
@@ -42,59 +47,65 @@ interface ByteWaveConfig {
   idField: string;
 }
 
-function loadConfig(): ByteWaveConfig | null {
-  const apiUrl = process.env.BYTEWAVE_API_URL?.trim();
-  const apiKey = process.env.BYTEWAVE_API_KEY?.trim();
-  if (!apiUrl || !apiKey) return null;
+function pick(value: string | undefined, fallback: string): string {
+  return value?.trim() || fallback;
+}
 
-  const authStyle = (process.env.BYTEWAVE_AUTH_STYLE || 'query').toLowerCase();
-  const bodyStyle = (process.env.BYTEWAVE_BODY_STYLE || 'json').toLowerCase();
-
-  return {
-    apiUrl,
-    apiKey,
-    senderId: process.env.BYTEWAVE_SENDER_ID || 'CALYVIA',
-    authStyle: (['query', 'bearer', 'header'].includes(authStyle) ? authStyle : 'query') as ByteWaveConfig['authStyle'],
-    keyParam: process.env.BYTEWAVE_KEY_PARAM || 'apikey',
-    keyHeader: process.env.BYTEWAVE_KEY_HEADER || 'Authorization',
-    bodyStyle: (['json', 'form', 'query'].includes(bodyStyle) ? bodyStyle : 'json') as ByteWaveConfig['bodyStyle'],
-    paramTo: process.env.BYTEWAVE_PARAM_TO || 'mobile',
-    paramMessage: process.env.BYTEWAVE_PARAM_MESSAGE || 'message',
-    paramSender: process.env.BYTEWAVE_PARAM_SENDER || 'sender',
-    idField: process.env.BYTEWAVE_ID_FIELD || 'id',
-  };
+function pickEnum<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
+  const v = (value || '').toLowerCase().trim();
+  return (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
 }
 
 export class ByteWaveSmsProvider implements SmsProvider {
   readonly name = 'bytewave';
   private readonly logger = new Logger('ByteWaveSmsProvider');
-  private readonly config: ByteWaveConfig;
 
-  constructor() {
-    const cfg = loadConfig();
-    if (!cfg) {
+  constructor(private readonly config: ConfigResolver) {}
+
+  private async loadConfig(): Promise<ByteWaveConfig> {
+    const apiUrl = await this.config.get('BYTEWAVE_API_URL', 'gateway.sms.bytewave.api_url');
+    const apiKey = await this.config.get('BYTEWAVE_API_KEY', 'gateway.sms.bytewave.api_key');
+
+    if (!apiUrl || !apiKey) {
       throw new Error(
-        'ByteWaveSmsProvider requires BYTEWAVE_API_URL and BYTEWAVE_API_KEY. ' +
-          'Set them in .env or select a different SMS_PROVIDER.',
+        'ByteWave is not configured. Set BYTEWAVE_API_URL and BYTEWAVE_API_KEY in the ' +
+          'deployment environment, or in System Settings (gateway.sms.bytewave.*).',
       );
     }
-    this.config = cfg;
+
+    return {
+      apiUrl,
+      apiKey,
+      senderId: pick(
+        await this.config.get('BYTEWAVE_SENDER_ID', 'gateway.sms.bytewave.sender_id'),
+        'CALYVIA',
+      ),
+      authStyle: pickEnum(process.env.BYTEWAVE_AUTH_STYLE, ['query', 'bearer', 'header'] as const, 'query'),
+      keyParam: pick(process.env.BYTEWAVE_KEY_PARAM, 'apikey'),
+      keyHeader: pick(process.env.BYTEWAVE_KEY_HEADER, 'Authorization'),
+      bodyStyle: pickEnum(process.env.BYTEWAVE_BODY_STYLE, ['json', 'form', 'query'] as const, 'json'),
+      paramTo: pick(process.env.BYTEWAVE_PARAM_TO, 'mobile'),
+      paramMessage: pick(process.env.BYTEWAVE_PARAM_MESSAGE, 'message'),
+      paramSender: pick(process.env.BYTEWAVE_PARAM_SENDER, 'sender'),
+      idField: pick(process.env.BYTEWAVE_ID_FIELD, 'id'),
+    };
   }
 
   async send(input: SmsSendInput): Promise<SmsSendResult> {
-    const { apiUrl, apiKey, senderId, authStyle, keyParam, keyHeader, bodyStyle } = this.config;
+    const cfg = await this.loadConfig();
+    const { apiUrl, apiKey, senderId, authStyle, keyParam, keyHeader, bodyStyle } = cfg;
 
     // ByteWave/Kenyan gateways typically want MSISDN without the '+' (e.g. 254712345678).
     const msisdn = input.to.replace(/\D/g, '');
     const sender = input.senderId || senderId;
 
     const fields: Record<string, string> = {
-      [this.config.paramTo]: msisdn,
-      [this.config.paramMessage]: input.body,
-      [this.config.paramSender]: sender,
+      [cfg.paramTo]: msisdn,
+      [cfg.paramMessage]: input.body,
+      [cfg.paramSender]: sender,
     };
 
-    // Query-string auth (key travels in the URL).
+    // Query-string auth (the key travels in the URL).
     const url = new URL(apiUrl);
     if (authStyle === 'query') url.searchParams.set(keyParam, apiKey);
 
@@ -144,7 +155,7 @@ export class ByteWaveSmsProvider implements SmsProvider {
 
     return {
       provider: this.name,
-      providerMessageId: this.extractMessageId(parsed),
+      providerMessageId: this.extractMessageId(parsed, cfg.idField),
       status: 'SENT',
       // Unit price advertised at Ksh 0.25/SMS.
       costKes: Number((segments * 0.25).toFixed(2)),
@@ -153,10 +164,10 @@ export class ByteWaveSmsProvider implements SmsProvider {
   }
 
   /** Gateways disagree on where the message id lives; try the common shapes. */
-  private extractMessageId(res: any): string | null {
+  private extractMessageId(res: any, idField: string): string | null {
     if (!res || typeof res !== 'object') return null;
     const candidates = [
-      res[this.config.idField],
+      res[idField],
       res.messageId,
       res.message_id,
       res.smsid,

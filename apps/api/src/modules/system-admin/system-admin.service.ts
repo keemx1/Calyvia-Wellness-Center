@@ -1,9 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { SystemSettingsService } from './settings.service';
 
 @Injectable()
 export class SystemAdminService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(SystemAdminService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private settings: SystemSettingsService,
+  ) {}
 
   async getFacilityConfig() {
     return {
@@ -31,19 +37,43 @@ export class SystemAdminService {
     };
   }
 
-  async updateSetting(key: string, value: string, category: string) {
+  /**
+   * Persist a system setting.
+   *
+   * NOTE: the columns are setting_key / setting_value / description / is_encrypted.
+   * An earlier version wrote `key`, `value` and `category`, which matched no column,
+   * so the upsert silently failed inside a bare `catch {}` and nothing was ever stored.
+   */
+  async updateSetting(
+    key: string,
+    value: string,
+    category: string,
+    isEncrypted = false,
+  ) {
     try {
-      if (this.prisma && this.prisma.systemSetting) {
-        return await this.prisma.systemSetting.upsert({
-          where: { key },
-          update: { value, category },
-          create: { key, value, category },
-        });
-      }
-    } catch {
-      // Fallback
+      const result = await this.settings.set(key, value, {
+        description: category,
+        isEncrypted,
+      });
+      return {
+        key: result.key,
+        category,
+        // Never echo a secret back to the caller.
+        value: isEncrypted ? '••••••••' : value,
+        isEncrypted,
+        stored: result.stored,
+        updatedAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      // Surface the failure instead of pretending the write succeeded.
+      this.logger.error(`Failed to update setting "${key}": ${err?.message || err}`);
+      throw err;
     }
+  }
 
-    return { key, value, category, updatedAt: new Date().toISOString() };
+  /** Read a single setting (decrypted when flagged). */
+  async getSetting(key: string) {
+    const value = await this.settings.readSetting(key);
+    return { key, value };
   }
 }

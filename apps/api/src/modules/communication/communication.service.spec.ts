@@ -1,20 +1,41 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
-import { CommunicationService, SendMessageDto } from './communication.service';
+import { CommunicationService } from './communication.service';
 import { PrismaService } from '../../database/prisma.service';
+import { SystemSettingsService } from '../system-admin/settings.service';
 import { CommunicationChannel } from '@calyvia/shared';
 
 /**
  * Regression coverage for the `communication_logs` schema mapping.
  *
  * The table uses recipient_phone / message_type / message_body / provider_message_id /
- * delivery_status / recipient_type (all NOT NULL where noted). An earlier version of
- * this service wrote `recipient`, `channel`, `subject`, `body`, `status`, `providerRef`,
- * which matched NO column, so every insert failed and the table stayed empty.
+ * delivery_status / recipient_type. An earlier version of this service wrote
+ * `recipient`, `channel`, `subject`, `body`, `status`, `providerRef`, which matched NO
+ * column, so every insert failed and the table stayed empty.
  */
+
+/** Mirrors SystemSettingsService: deployment env wins, then system_settings. */
+function makeSettings(db: Record<string, string> = {}) {
+  return {
+    get: jest.fn(async (envVar: string, settingKey: string) =>
+      process.env[envVar]?.trim() || db[settingKey] || undefined,
+    ),
+    require: jest.fn(async (envVar: string, settingKey: string) => {
+      const v = process.env[envVar]?.trim() || db[settingKey];
+      if (!v) throw new Error(`missing ${envVar}`);
+      return v;
+    }),
+    readSetting: jest.fn(async (k: string) => db[k] ?? null),
+    set: jest.fn(),
+    listGatewaySettings: jest.fn(),
+    saveGatewaySettings: jest.fn(),
+  };
+}
+
 describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
   let service: CommunicationService;
   let mockPrisma: any;
+  let mockSettings: ReturnType<typeof makeSettings>;
 
   beforeEach(async () => {
     mockPrisma = {
@@ -25,11 +46,13 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
+    mockSettings = makeSettings();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CommunicationService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: SystemSettingsService, useValue: mockSettings },
       ],
     }).compile();
 
@@ -38,6 +61,7 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   it('should be defined', () => {
@@ -46,13 +70,11 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
 
   describe('schema mapping (regression)', () => {
     it('persists using the real column names of communication_logs', async () => {
-      const dto: SendMessageDto = {
+      await service.sendMessage({
         recipient: '0712345678',
         channel: CommunicationChannel.SMS,
         body: 'Your appointment is tomorrow at 10:00.',
-      };
-
-      await service.sendMessage(dto);
+      });
 
       expect(mockPrisma.communicationLog.create).toHaveBeenCalledTimes(1);
       const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
@@ -139,6 +161,7 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
 
       const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
       expect(data.messageType).toBe('WHATSAPP');
+      // WhatsApp is free; a 0 cost must not be replaced by the DB default of 1.00.
       expect(data.costKes).toBe(0);
     });
 
@@ -228,23 +251,20 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
 
     it('stays bootable and reports a FAILED dispatch when a driver cannot be constructed', async () => {
       // A misconfigured gateway must not take the whole API down.
+      delete process.env.SMS_PROVIDER;
       delete process.env.BYTEWAVE_API_URL;
       delete process.env.BYTEWAVE_API_KEY;
-      process.env.SMS_PROVIDER = 'bytewave';
 
-      const localPrisma: any = {
-        communicationLog: {
-          create: jest.fn().mockImplementation((args: any) =>
-            Promise.resolve({ id: 'comm-fail-1', ...args.data }),
-          ),
-          findMany: jest.fn().mockResolvedValue([]),
-        },
-      };
+      mockSettings = makeSettings({
+        'gateway.sms.provider': 'bytewave',
+        // deliberately no api_url / api_key
+      });
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           CommunicationService,
-          { provide: PrismaService, useValue: localPrisma },
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
         ],
       }).compile();
 
@@ -260,10 +280,122 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
       // The attempt is still recorded so there is an audit trail of the failure.
-      const data = localPrisma.communicationLog.create.mock.calls[0][0].data;
+      const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
       expect(data.deliveryStatus).toBe('FAILED');
-      expect(data.provider).toBe('UNAVAILABLE');
+      expect(data.provider).toBe('BYTEWAVE');
       expect(data.providerMessageId).toBeNull();
+    });
+  });
+
+  /**
+   * The hybrid config contract: system_settings is the operator-editable fallback,
+   * and the deployment environment always wins.
+   */
+  describe('gateway configuration resolution', () => {
+    const ENV_KEYS = ['SMS_PROVIDER', 'AFRICASTALKING_USERNAME', 'AFRICASTALKING_API_KEY'] as const;
+    const saved: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      for (const k of ENV_KEYS) {
+        saved[k] = process.env[k];
+        delete process.env[k];
+      }
+    });
+
+    afterEach(() => {
+      for (const k of ENV_KEYS) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k]!;
+      }
+    });
+
+    it('dispatches using credentials stored in system_settings when the environment is empty', async () => {
+      const atResponse = {
+        SMSMessageData: {
+          Message: 'Sent to 1/1 Total Cost: KES 0.8000 Message parts: 1',
+          Recipients: [
+            {
+              statusCode: 100,
+              number: '+254712345678',
+              status: 'Success',
+              cost: 'KES 0.8000',
+              messageId: 'ATXid_999',
+            },
+          ],
+        },
+      };
+
+      const fetchSpy = jest
+        .spyOn(globalThis, 'fetch' as any)
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(atResponse),
+        } as any);
+
+      mockSettings = makeSettings({
+        'gateway.sms.provider': 'africas_talking',
+        'gateway.sms.africastalking.username': 'calyvia',
+        'gateway.sms.africastalking.api_key': 'db-stored-secret',
+        'gateway.sms.africastalking.sender_id': 'CALYVIA',
+      });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          CommunicationService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
+        ],
+      }).compile();
+
+      const localService = module.get<CommunicationService>(CommunicationService);
+
+      await localService.sendMessage({
+        recipient: '0712345678',
+        channel: CommunicationChannel.SMS,
+        body: 'Reminder from system_settings config',
+      });
+
+      // The DB-configured driver really ran.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0] as any[];
+      expect(String(url)).toContain('/version1/messaging');
+      expect((init.headers as any).apiKey).toBe('db-stored-secret');
+
+      const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
+      expect(data.provider).toBe('AFRICAS_TALKING');
+      expect(data.providerMessageId).toBe('ATXid_999');
+      expect(data.costKes).toBe(0.8);
+      expect(data.deliveryStatus).toBe('SENT');
+    });
+
+    it('lets an environment variable override system_settings', async () => {
+      process.env.SMS_PROVIDER = 'mock';
+
+      const fetchSpy = jest.spyOn(globalThis, 'fetch' as any);
+
+      mockSettings = makeSettings({ 'gateway.sms.provider': 'bytewave' });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          CommunicationService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
+        ],
+      }).compile();
+
+      const localService = module.get<CommunicationService>(CommunicationService);
+
+      await localService.sendMessage({
+        recipient: '0712345678',
+        channel: CommunicationChannel.SMS,
+        body: 'env wins',
+      });
+
+      // mock won over the DB's "bytewave", so no HTTP call and a MOCK ref.
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
+      expect(data.provider).toBe('MOCK');
     });
   });
 });

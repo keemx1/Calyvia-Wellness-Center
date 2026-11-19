@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { SmsProvider } from './sms-provider';
 import { WhatsAppProvider } from './whatsapp-provider';
+import { ConfigResolver } from './config-resolver';
 import { MockSmsProvider } from './mock-sms.provider';
 import { MockWhatsAppProvider } from './mock-whatsapp.provider';
 import { ByteWaveSmsProvider } from './bytewave-sms.provider';
@@ -9,6 +10,7 @@ import { BaileysWhatsAppProvider, getBaileysGateway } from './baileys-whatsapp.p
 
 export * from './sms-provider';
 export * from './whatsapp-provider';
+export * from './config-resolver';
 export * from './mock-sms.provider';
 export * from './mock-whatsapp.provider';
 export * from './bytewave-sms.provider';
@@ -39,22 +41,27 @@ class UnavailableWhatsAppProvider implements WhatsAppProvider {
 }
 
 /**
- * Driver selection is driven entirely by environment config so we can move from
- * local dev -> sandbox -> production without code changes:
+ * Driver selection is driven by configuration so we can move from local dev ->
+ * sandbox -> production without code changes:
  *
  *   SMS_PROVIDER       mock | bytewave | africas_talking
  *   WHATSAPP_PROVIDER  mock | baileys
+ *
+ * The provider name resolves through `ConfigResolver` (deployment env wins,
+ * `system_settings` is the fallback) so an admin can switch gateways from the UI.
  */
-export function createSmsProvider(): SmsProvider {
-  const provider = (process.env.SMS_PROVIDER || 'mock').toLowerCase().trim();
+export async function createSmsProvider(config: ConfigResolver): Promise<SmsProvider> {
+  const provider = ((await config.get('SMS_PROVIDER', 'gateway.sms.provider')) || 'mock')
+    .toLowerCase()
+    .trim();
 
   try {
     switch (provider) {
       case 'bytewave':
-        return new ByteWaveSmsProvider();
+        return new ByteWaveSmsProvider(config);
       case 'africas_talking':
       case 'africastalking':
-        return new AfricasTalkingSmsProvider();
+        return new AfricasTalkingSmsProvider(config);
       case 'mock':
         return new MockSmsProvider();
       default:
@@ -69,8 +76,10 @@ export function createSmsProvider(): SmsProvider {
   }
 }
 
-export function createWhatsAppProvider(): WhatsAppProvider {
-  const provider = (process.env.WHATSAPP_PROVIDER || 'mock').toLowerCase().trim();
+export async function createWhatsAppProvider(config: ConfigResolver): Promise<WhatsAppProvider> {
+  const provider = ((await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider')) || 'mock')
+    .toLowerCase()
+    .trim();
 
   try {
     switch (provider) {
@@ -90,9 +99,13 @@ export function createWhatsAppProvider(): WhatsAppProvider {
   }
 }
 
-/** Called once at bootstrap when WHATSAPP_PROVIDER=baileys to bring the socket up. */
-export async function bootstrapWhatsApp(): Promise<void> {
-  if ((process.env.WHATSAPP_PROVIDER || '').toLowerCase().trim() !== 'baileys') return;
+/** Called at bootstrap to bring the WhatsApp socket up when Baileys is selected. */
+export async function bootstrapWhatsApp(config: ConfigResolver): Promise<void> {
+  const provider = ((await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider')) || '')
+    .toLowerCase()
+    .trim();
+  if (provider !== 'baileys') return;
+
   try {
     await getBaileysGateway().start();
     logger.log('WhatsApp (Baileys) gateway bootstrapped.');

@@ -1,61 +1,79 @@
 import { Logger } from '@nestjs/common';
 import { SmsProvider, SmsSendInput, SmsSendResult } from './sms-provider';
+import { ConfigResolver } from './config-resolver';
 
 /**
  * Africa's Talking SMS driver (https://africastalking.com).
- * Plain REST — no SDK dependency. Chosen as the documented fallback aggregator
- * in architecture.md; selected when `SMS_PROVIDER=africas_talking`.
+ * Plain REST — no SDK dependency. Selected when `SMS_PROVIDER=africas_talking`.
  *
- * Config:
- *   AFRICASTALKING_USERNAME   'sandbox' while testing, your app username in production.
- *   AFRICASTALKING_API_KEY    API key from the dashboard.
- *   AFRICASTALKING_SENDER_ID  Registered sender ID / shortcode (optional).
- *   AFRICASTALKING_ENV        sandbox | production  (default production).
+ * Config is resolved per send via `ConfigResolver` (deployment env wins,
+ * `system_settings` is the fallback):
+ *
+ *   gateway.sms.africastalking.username    AFRICASTALKING_USERNAME   (required)
+ *   gateway.sms.africastalking.api_key     AFRICASTALKING_API_KEY    (required)
+ *   gateway.sms.africastalking.sender_id   AFRICASTALKING_SENDER_ID
+ *   -                                      AFRICASTALKING_ENV        production | sandbox
  */
 export class AfricasTalkingSmsProvider implements SmsProvider {
   readonly name = 'africas_talking';
   private readonly logger = new Logger('AfricasTalkingSmsProvider');
 
-  private readonly username: string;
-  private readonly apiKey: string;
-  private readonly senderId?: string;
-  private readonly baseUrl: string;
+  constructor(private readonly config: ConfigResolver) {}
 
-  constructor() {
-    this.username = process.env.AFRICASTALKING_USERNAME || '';
-    this.apiKey = process.env.AFRICASTALKING_API_KEY || '';
-    this.senderId = process.env.AFRICASTALKING_SENDER_ID || undefined;
+  private async loadConfig() {
+    const username = await this.config.get(
+      'AFRICASTALKING_USERNAME',
+      'gateway.sms.africastalking.username',
+    );
+    const apiKey = await this.config.get('AFRICASTALKING_API_KEY', 'gateway.sms.africastalking.api_key');
 
-    const isSandbox = (process.env.AFRICASTALKING_ENV || '').toLowerCase() === 'sandbox'
-      || this.username.toLowerCase() === 'sandbox';
-    this.baseUrl = isSandbox
-      ? 'https://api.sandbox.africastalking.com'
-      : 'https://api.africastalking.com';
-
-    if (!this.username || !this.apiKey) {
+    if (!username || !apiKey) {
       throw new Error(
-        'AfricasTalkingSmsProvider requires AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY.',
+        "Africa's Talking is not configured. Set AFRICASTALKING_USERNAME and " +
+          'AFRICASTALKING_API_KEY in the deployment environment, or in System Settings ' +
+          '(gateway.sms.africastalking.*).',
       );
     }
+
+    const senderId = await this.config.get(
+      'AFRICASTALKING_SENDER_ID',
+      'gateway.sms.africastalking.sender_id',
+    );
+
+    // The "sandbox" username implies the sandbox host.
+    const isSandbox =
+      (process.env.AFRICASTALKING_ENV || '').toLowerCase() === 'sandbox' ||
+      username.toLowerCase() === 'sandbox';
+
+    return {
+      username,
+      apiKey,
+      senderId: senderId || undefined,
+      baseUrl: isSandbox
+        ? 'https://api.sandbox.africastalking.com'
+        : 'https://api.africastalking.com',
+    };
   }
 
   async send(input: SmsSendInput): Promise<SmsSendResult> {
+    const cfg = await this.loadConfig();
+
     // Africa's Talking accepts E.164 (+254712345678) or 254712345678.
     const to = input.to.startsWith('+') ? input.to : `+${input.to.replace(/\D/g, '')}`;
 
     const params = new URLSearchParams({
-      username: this.username,
+      username: cfg.username,
       to,
       message: input.body,
       bulkSMSMode: '1',
     });
-    const sender = input.senderId || this.senderId;
+    const sender = input.senderId || cfg.senderId;
     if (sender) params.set('from', sender);
 
-    const res = await fetch(`${this.baseUrl}/version1/messaging`, {
+    const res = await fetch(`${cfg.baseUrl}/version1/messaging`, {
       method: 'POST',
       headers: {
-        apiKey: this.apiKey,
+        apiKey: cfg.apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: 'application/json',
       },

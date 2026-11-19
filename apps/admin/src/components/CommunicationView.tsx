@@ -14,13 +14,15 @@ import {
   BarChart2,
 } from 'lucide-react';
 
+import { GatewaySettingsView } from './GatewaySettingsView';
+
 interface CommunicationViewProps {
   token: string | null;
   apiUrl: string;
 }
 
 export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, apiUrl }) => {
-  const [activeTab, setActiveTab] = useState<'communication' | 'feedback'>('communication');
+  const [activeTab, setActiveTab] = useState<'communication' | 'feedback' | 'gateway'>('communication');
   const [commLogs, setCommLogs] = useState<any[]>([]);
   const [feedbackSummary, setFeedbackSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -150,7 +152,7 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
             </p>
           </div>
           <div className="flex items-center space-x-2">
-            {activeTab === 'communication' ? (
+            {activeTab === 'communication' && (
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs transition"
@@ -158,7 +160,8 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                 <Send className="w-4 h-4" />
                 <span>Send SMS / Broadcast</span>
               </button>
-            ) : (
+            )}
+            {activeTab === 'feedback' && (
               <button
                 onClick={() => setFeedbackModalOpen(true)}
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs transition"
@@ -208,7 +211,19 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
           >
             Patient Satisfaction & NPS Analytics
           </button>
+          <button
+            onClick={() => setActiveTab('gateway')}
+            className={`pb-2.5 transition border-b-2 ${
+              activeTab === 'gateway'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            WhatsApp & Gateway Setup
+          </button>
         </div>
+
+        {activeTab === 'gateway' && <GatewaySettingsView token={token} apiUrl={apiUrl} />}
 
         {activeTab === 'communication' && (
           <div className="overflow-x-auto rounded-xl border border-border mt-3">
