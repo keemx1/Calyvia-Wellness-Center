@@ -16,6 +16,13 @@ import { AppModule } from './app.module';
 import { GlobalHttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
+  // Baileys (WhatsApp socket) is known for occasional unhandled rejections on
+  // connection churn. Log them instead of letting Node's default behavior kill
+  // the whole API process.
+  process.on('unhandledRejection', (reason: unknown) => {
+    console.error('[unhandledRejection]', reason);
+  });
+
   const app = await NestFactory.create(AppModule);
 
   // Security middlewares

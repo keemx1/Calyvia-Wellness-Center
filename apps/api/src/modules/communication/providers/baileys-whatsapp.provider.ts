@@ -69,10 +69,18 @@ export class BaileysWhatsAppGateway {
 
     let version: [number, number, number] | undefined;
     try {
-      const latest = await this.baileys.fetchLatestBaileysVersion();
+      // Never let a hung version check stall API boot: Nest waits for
+      // onModuleInit, so an unsettled promise here means the app never listens.
+      const latest = await this.withTimeout<any>(
+        this.baileys.fetchLatestBaileysVersion(),
+        15_000,
+        'fetchLatestBaileysVersion',
+      );
       version = latest?.version;
-    } catch {
-      /* fall back to the version bundled with Baileys */
+    } catch (err: any) {
+      this.logger.warn(
+        `Using bundled Baileys version (latest-version check failed: ${err?.message || err})`,
+      );
     }
 
     this.status = 'connecting';
@@ -142,6 +150,27 @@ export class BaileysWhatsAppGateway {
         this.logger.error(`WhatsApp reconnect failed: ${err?.message || err}`),
       );
     }, 5_000);
+  }
+
+  /**
+   * Race a promise against a timer. The loser gets a no-op settlement handler so
+   * a late failure can never surface as an unhandled rejection (which Node turns
+   * into a process crash).
+   */
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      promise.then(
+        () => {},
+        () => {},
+      );
+    }
   }
 
   /**
