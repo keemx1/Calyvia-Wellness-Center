@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
-import { ConfigResolver } from '../communication/providers/config-resolver';
+import {
+  ConfigResolver,
+  resolveSmsProviderName,
+} from '../communication/providers/config-resolver';
 
 /**
  * Definition of an operator-editable gateway setting.
@@ -33,8 +36,8 @@ export const GATEWAY_SETTINGS: GatewaySettingDef[] = [
     label: 'SMS provider',
     group: 'SMS',
     description:
-      'Which SMS gateway dispatches messages. Use bytewave in production; mock is for local development only.',
-    options: ['mock', 'bytewave'],
+      'ByteWave is the production SMS gateway. The mock driver is restricted to local development.',
+    options: ['bytewave'],
   },
   {
     key: 'gateway.sms.bytewave.mode',
@@ -138,10 +141,12 @@ export class SystemSettingsService implements ConfigResolver {
    */
   async get(envVar: string, settingKey: string): Promise<string | undefined> {
     const fromEnv = process.env[envVar]?.trim();
-    if (fromEnv) return fromEnv;
+    if (fromEnv && envVar !== 'SMS_PROVIDER') return fromEnv;
 
-    const fromDb = await this.readSetting(settingKey);
-    return fromDb || undefined;
+    const fromDb = fromEnv ? null : await this.readSetting(settingKey);
+    const resolved = fromEnv || fromDb || undefined;
+    // A stale SMS_PROVIDER=mock in a deployment must not keep faking deliveries.
+    return envVar === 'SMS_PROVIDER' ? resolveSmsProviderName(resolved) || undefined : resolved;
   }
 
   /** Same as get(), but throws when the value is configured nowhere. */
@@ -209,7 +214,11 @@ export class SystemSettingsService implements ConfigResolver {
       const fromEnv = process.env[def.envVar]?.trim();
       const fromDb = fromEnv ? null : await this.readSetting(def.key);
 
-      const effective = fromEnv ?? fromDb ?? '';
+      const rawEffective = fromEnv ?? fromDb ?? '';
+      const effective =
+        def.key === 'gateway.sms.provider'
+          ? resolveSmsProviderName(rawEffective)
+          : rawEffective;
       const source: GatewaySettingView['source'] = fromEnv
         ? 'env'
         : fromDb
@@ -228,7 +237,7 @@ export class SystemSettingsService implements ConfigResolver {
         // Never echo a secret back to the client.
         value: def.secret ? '' : effective,
         source,
-        hasValue: !!effective,
+        hasValue: !!rawEffective,
       });
     }
 

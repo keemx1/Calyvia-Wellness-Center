@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { SmsProvider } from './sms-provider';
 import { WhatsAppProvider } from './whatsapp-provider';
-import { ConfigResolver } from './config-resolver';
+import { ConfigResolver, resolveSmsProviderName } from './config-resolver';
 import { MockSmsProvider } from './mock-sms.provider';
 import { MockWhatsAppProvider } from './mock-whatsapp.provider';
 import { ByteWaveSmsProvider } from './bytewave-sms.provider';
@@ -42,16 +42,19 @@ class UnavailableWhatsAppProvider implements WhatsAppProvider {
  * Driver selection is driven by configuration so we can move from local dev ->
  * sandbox -> production without code changes:
  *
- *   SMS_PROVIDER       mock (dev only) | bytewave
+ *   SMS_PROVIDER       bytewave (production) | mock (local dev/test only)
  *   WHATSAPP_PROVIDER  mock | baileys
  *
  * The provider name resolves through `ConfigResolver` (deployment env wins,
  * `system_settings` is the fallback) so an admin can switch gateways from the UI.
  */
 export async function createSmsProvider(config: ConfigResolver): Promise<SmsProvider> {
-  const provider = ((await config.get('SMS_PROVIDER', 'gateway.sms.provider')) || 'mock')
-    .toLowerCase()
-    .trim();
+  const configured = await config.get('SMS_PROVIDER', 'gateway.sms.provider');
+  // In production this always resolves to ByteWave; `mock` remains available to
+  // local dev and the test suite only.
+  const provider =
+    resolveSmsProviderName(configured) ||
+    (process.env.NODE_ENV === 'production' ? 'bytewave' : 'mock');
 
   try {
     switch (provider) {

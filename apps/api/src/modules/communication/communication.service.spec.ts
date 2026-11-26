@@ -430,6 +430,50 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       expect(data.provider).toBe('MOCK');
     });
 
+    it('ignores a stale SMS_PROVIDER=mock in production and dispatches via ByteWave', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      process.env.SMS_PROVIDER = 'mock';
+
+      const fetchSpy = jest
+        .spyOn(globalThis, 'fetch' as any)
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ id: 'BW-PROD-1' }),
+        } as any);
+
+      mockSettings = makeSettings({
+        'gateway.sms.provider': 'bytewave',
+        'gateway.sms.bytewave.api_key': 'prod-key',
+        'gateway.sms.bytewave.api_url': 'https://portal.bytewavenetworks.com/api/http/',
+      });
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          CommunicationService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
+        ],
+      }).compile();
+      const localService = module.get<CommunicationService>(CommunicationService);
+
+      try {
+        await localService.sendMessage({
+          recipient: '0703377395',
+          channel: CommunicationChannel.SMS,
+          body: 'Production must not use the mock driver',
+        });
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
+        expect(data.provider).toBe('BYTEWAVE');
+        expect(data.deliveryStatus).toBe('SENT');
+      } finally {
+        if (originalEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = originalEnv;
+      }
+    });
+
     it('tests the saved ByteWave key even when SMS_PROVIDER=mock and api_url is invalid', async () => {
       process.env.SMS_PROVIDER = 'mock';
       const fetchSpy = jest

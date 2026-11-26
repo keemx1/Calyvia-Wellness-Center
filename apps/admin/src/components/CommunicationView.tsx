@@ -393,8 +393,8 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                     onChange={(e) => setSendForm({ ...sendForm, channel: e.target.value })}
                     className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
                   >
-                    <option value="SMS">Safaricom SMS</option>
-                    <option value="WHATSAPP">WhatsApp Message</option>
+                    <option value="SMS">ByteWave SMS</option>
+                    <option value="WHATSAPP">WhatsApp</option>
                   </select>
                 </div>
                 <div>

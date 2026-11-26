@@ -15,6 +15,19 @@ export interface ConfigResolver {
   get(envVar: string, settingKey: string): Promise<string | undefined>;
 }
 
+/**
+ * The `mock` SMS driver only exists for local development and automated tests.
+ * A production deployment must never emit synthetic deliveries, so any other
+ * value (including a stale `SMS_PROVIDER=mock` left in Coolify) resolves to
+ * ByteWave there. This keeps the gateway honest without a redeploy just to
+ * change an environment variable.
+ */
+export function resolveSmsProviderName(value: string | undefined | null): string {
+  const raw = (value || '').trim().toLowerCase();
+  if (process.env.NODE_ENV === 'production' && raw !== 'bytewave') return 'bytewave';
+  return raw;
+}
+
 /** No-op resolver used in unit tests. */
 export class NullConfigResolver implements ConfigResolver {
   constructor(private readonly values: Record<string, string | undefined> = {}) {}
