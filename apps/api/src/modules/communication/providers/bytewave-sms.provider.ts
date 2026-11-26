@@ -48,6 +48,16 @@ interface ByteWaveConfig {
 export const BYTEWAVE_HTTP_BASE = 'https://portal.bytewavenetworks.com/api/http/';
 export const BYTEWAVE_OAUTH_BASE = 'https://portal.bytewavenetworks.com/api/v3/';
 
+/**
+ * Price per SMS segment. ByteWave's balance API reports only a KES credit, not
+ * an SMS count, so the same rate powers the "SMS available" estimate. Override
+ * with BYTEWAVE_SMS_COST_KES if your account's rate differs.
+ */
+export function byteWaveCostPerSms(): number {
+  const value = Number(process.env.BYTEWAVE_SMS_COST_KES);
+  return Number.isFinite(value) && value > 0 ? value : 0.25;
+}
+
 function pick(value: string | undefined, fallback: string): string {
   return value?.trim() || fallback;
 }
@@ -387,7 +397,7 @@ export class ByteWaveSmsProvider implements SmsProvider {
       providerMessageId: this.extractMessageId(parsed, cfg.idField),
       status: 'SENT',
       // Unit price advertised at Ksh 0.25/SMS.
-      costKes: Number((segments * 0.25).toFixed(2)),
+      costKes: Number((segments * byteWaveCostPerSms()).toFixed(2)),
       raw: parsed,
     };
   }
@@ -514,7 +524,7 @@ export class ByteWaveSmsProvider implements SmsProvider {
       provider: this.name,
       providerMessageId: this.extractMessageId(parsed, cfg.idField),
       status: 'SENT',
-      costKes: Number((segments * 0.25).toFixed(2)),
+      costKes: Number((segments * byteWaveCostPerSms()).toFixed(2)),
       raw: parsed,
     };
   }

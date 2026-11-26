@@ -11,7 +11,6 @@ import {
   Plus,
   ArrowUpRight,
   ShieldCheck,
-  Smartphone,
   Pill,
   Clock,
   HeartHandshake,
@@ -76,6 +75,7 @@ import { ReferralsView } from '../components/ReferralsView';
 import { CommunicationView } from '../components/CommunicationView';
 import { RoomsView } from '../components/RoomsView';
 import { AutomationView } from '../components/AutomationView';
+import { BillingView } from '../components/BillingView';
 import { BottomNav } from '../components/BottomNav';
 
 const MODULE_TITLES: Record<string, string> = {
@@ -172,11 +172,6 @@ export default function AdminDashboardPage() {
       }
     }
   }, [user, defaultModule]);
-
-  // M-Pesa STK Push state for billing demo
-  const [stkPhoneNumber, setStkPhoneNumber] = useState<string>('254712345678');
-  const [stkAmount, setStkAmount] = useState<string>('45000');
-  const [stkStatus, setStkStatus] = useState<string | null>(null);
 
   // Dynamic Nairobi-time greeting
   const [greeting, setGreeting] = useState<{ salutation: string; message: string }>({
@@ -751,17 +746,6 @@ export default function AdminDashboardPage() {
       });
     }
   }, []);
-
-  // Trigger demo Safaricom Daraja STK Push
-  const handleTriggerMpesaStk = () => {
-    setStkStatus('REQUESTED');
-    setTimeout(() => {
-      setStkStatus('SENT_TO_PHONE');
-      setTimeout(() => {
-        setStkStatus('SUCCESS');
-      }, 2500);
-    }, 1200);
-  };
 
   // Handle Register Patient Form Submission
   const handleRegisterPatientSubmit = async (e: React.FormEvent) => {
@@ -2369,82 +2353,12 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* Module: 07. Billing & Daraja M-Pesa Integration Demo */}
+          {/* Module: 07. Invoicing Center */}
           {activeModule === 'billing' && (
-            <div className="bg-card p-6 sm:p-8 rounded-2xl border border-border shadow-card space-y-6">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-foreground">
-                  Module 07: Billing & Safaricom Daraja M-Pesa Integration
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Collect rehab deposits, consultation fees, and pharmacy disbursements directly to Calyvia Till / Paybill
-                </p>
-              </div>
-
-              <div className="max-w-md bg-surface-subtle p-6 rounded-2xl border border-border space-y-4 text-xs">
-                <div className="space-y-3.5">
-                  <div>
-                    <label className="block text-foreground font-semibold mb-1.5">
-                      Patient Safaricom Phone Number
-                    </label>
-                    <input
-                      type="text"
-                      value={stkPhoneNumber}
-                      onChange={(e) => setStkPhoneNumber(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none transition-all"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-foreground font-semibold mb-1.5">
-                      Billing Amount in Kenya Shillings (KES)
-                    </label>
-                    <input
-                      type="number"
-                      value={stkAmount}
-                      onChange={(e) => setStkAmount(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none transition-all"
-                    />
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      onClick={handleTriggerMpesaStk}
-                      className="w-full py-3 bg-primary hover:bg-primary-hover active:scale-[0.98] text-primary-foreground font-semibold rounded-xl text-xs transition-all duration-200 shadow-xs flex items-center justify-center space-x-2"
-                    >
-                      <Smartphone className="w-4 h-4" />
-                      <span>Send M-Pesa Prompt (KES {Number(stkAmount).toLocaleString()})</span>
-                    </button>
-                  </div>
-
-                  {stkStatus && (
-                    <div className="mt-4 p-3.5 rounded-xl border border-border text-xs font-mono">
-                      {stkStatus === 'REQUESTED' && (
-                        <div className="text-warning bg-warning-soft border border-warning/20 p-2.5 rounded-xl">
-                          Handshaking with Safaricom Daraja API gateway...
-                        </div>
-                      )}
-                      {stkStatus === 'SENT_TO_PHONE' && (
-                        <div className="text-info bg-info-soft border border-info/20 p-2.5 rounded-xl animate-pulse">
-                          STK Push prompt sent to {stkPhoneNumber}. Awaiting PIN entry...
-                        </div>
-                      )}
-                      {stkStatus === 'SUCCESS' && (
-                        <div className="text-success bg-success-soft border border-success/30 p-3.5 rounded-xl">
-                          <div className="font-bold flex items-center">
-                            <CheckCircle2 className="w-4 h-4 mr-1.5 text-success" />
-                            PAYMENT CONFIRMED (M-Pesa Code: SHB94819KL)
-                          </div>
-                          <div className="mt-1 text-[11px] opacity-90">
-                            KES {Number(stkAmount).toLocaleString()} received and allocated to Invoice INV-2026-0042.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <BillingView
+              token={token}
+              apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+            />
           )}
 
           {/* Module: 04. Detox Management (CIWA/COWS) */}

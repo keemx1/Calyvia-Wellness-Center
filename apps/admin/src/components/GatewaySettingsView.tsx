@@ -639,12 +639,27 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                       <p className="text-lg font-semibold text-foreground mt-0.5">
                         {balance.smsAvailable !== null && balance.smsAvailable !== undefined ? (
                           Number(balance.smsAvailable).toLocaleString()
+                        ) : balance.estimatedSmsAvailable !== null &&
+                          balance.estimatedSmsAvailable !== undefined ? (
+                          <span title="Estimated from the KES balance">
+                            ≈ {Number(balance.estimatedSmsAvailable).toLocaleString()}
+                          </span>
                         ) : (
                           <span className="text-sm font-normal">Not reported by ByteWave</span>
                         )}
                       </p>
                     </div>
                   </div>
+
+                  {(balance.smsAvailable === null || balance.smsAvailable === undefined) &&
+                    balance.estimatedSmsAvailable !== null &&
+                    balance.estimatedSmsAvailable !== undefined && (
+                      <p className="text-[10px] text-muted-foreground">
+                        ByteWave reports only the KES balance — approximate SMS count at KES{' '}
+                        {balance.costPerSmsKes ?? 0.25} per SMS. Set{' '}
+                        <code className="font-mono">BYTEWAVE_SMS_COST_KES</code> to match your plan.
+                      </p>
+                    )}
 
                   {(balance.candidates?.length ?? 0) > 0 &&
                     (balance.balanceKes === null || balance.smsAvailable === null) && (

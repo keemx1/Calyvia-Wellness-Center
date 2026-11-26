@@ -3,6 +3,7 @@ import {
   WhatsAppProvider,
   WhatsAppSendInput,
   WhatsAppSendResult,
+  WhatsAppDocumentInput,
   toWhatsAppJid,
 } from './whatsapp-provider';
 
@@ -24,6 +25,20 @@ export class MockWhatsAppProvider implements WhatsAppProvider {
       status: 'SENT',
       costKes: 0,
       raw: { mocked: true, jid },
+    };
+  }
+
+  async sendDocument(input: WhatsAppDocumentInput): Promise<WhatsAppSendResult> {
+    const jid = toWhatsAppJid(input.to);
+    this.logger.log(
+      `[MOCK WHATSAPP] document=${input.fileName} bytes=${input.buffer.byteLength} jid=${jid}`,
+    );
+    return {
+      provider: this.name,
+      providerMessageId: `MOCK-WA-DOC-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+      status: 'SENT',
+      costKes: 0,
+      raw: { mocked: true, jid, fileName: input.fileName },
     };
   }
 }

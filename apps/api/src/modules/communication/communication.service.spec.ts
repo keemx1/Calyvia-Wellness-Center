@@ -553,12 +553,49 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
         mode: 'http',
         balanceKes: 150.25,
         smsAvailable: 600,
+        estimatedSmsAvailable: null,
       });
       expect(result.topUpUrl).toContain('portal.bytewavenetworks.com');
       const url = new URL(String(fetchSpy.mock.calls[0][0]));
       expect(url.pathname).toBe('/api/http/balance');
       expect(url.searchParams.get('api_token')).toBe('saved-balance-key');
       expect(JSON.stringify(result)).not.toContain('saved-balance-key');
+    });
+
+    it('estimates SMS available when the portal only reports a KES balance', async () => {
+      jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            status: 'success',
+            message: null,
+            data: { remaining_balance: 'Ksh50.40', expired_on: '14th Oct 25, 12:13 PM' },
+          }),
+      } as any);
+
+      mockSettings = makeSettings({
+        'gateway.sms.bytewave.api_key': 'saved-balance-key',
+        'gateway.sms.bytewave.api_url': 'https://portal.bytewavenetworks.com/api/http/',
+      });
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          CommunicationService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
+        ],
+      }).compile();
+      const localService = module.get<CommunicationService>(CommunicationService);
+
+      const result = await localService.getByteWaveBalance();
+
+      expect(result).toMatchObject({
+        success: true,
+        balanceKes: 50.4,
+        smsAvailable: null,
+        estimatedSmsAvailable: 201,
+        costPerSmsKes: 0.25,
+      });
     });
 
     it('reports a failed balance lookup instead of inventing numbers', async () => {

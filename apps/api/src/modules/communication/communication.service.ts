@@ -11,6 +11,7 @@ import {
   BYTEWAVE_HTTP_BASE,
   BYTEWAVE_OAUTH_BASE,
   parseByteWaveBalance,
+  byteWaveCostPerSms,
 } from './providers';
 import {
   listSmsTemplates,
@@ -162,6 +163,77 @@ export class CommunicationService implements OnModuleInit {
       );
     }
 
+    return this.toView(record);
+  }
+
+  /**
+   * Deliver a document (currently an invoice PDF) as a real WhatsApp attachment.
+   * Reuses the configured WhatsApp driver and writes the same audit trail as a
+   * text message, so a rejected delivery never looks successful.
+   */
+  async sendWhatsAppDocument(input: {
+    recipient: string;
+    buffer: Buffer | Uint8Array;
+    fileName: string;
+    caption?: string;
+    recipientType?: string;
+  }) {
+    if (!input.recipient?.trim()) throw new BadRequestException('Recipient is required.');
+    const recipient = KenyaUtils.normalizePhoneNumber(input.recipient);
+    if (!/^\+\d{9,15}$/.test(recipient)) {
+      throw new BadRequestException(`"${input.recipient}" is not a valid Kenyan phone number.`);
+    }
+
+    let providerName = 'unknown';
+    let providerMessageId: string | null = null;
+    let deliveryStatus: 'QUEUED' | 'SENT' | 'FAILED' = 'FAILED';
+    let raw: unknown;
+    let dispatchError: string | null = null;
+
+    try {
+      const driver = await createWhatsAppProvider(this.settings);
+      providerName = driver.name;
+      if (!driver.sendDocument) {
+        throw new Error(`The ${driver.name} WhatsApp driver cannot send attachments.`);
+      }
+      const res = await driver.sendDocument({
+        to: recipient,
+        buffer: input.buffer,
+        fileName: input.fileName,
+        caption: input.caption,
+      });
+      providerName = res.provider;
+      providerMessageId = res.providerMessageId;
+      deliveryStatus = res.status;
+      raw = res.raw;
+      if (deliveryStatus === 'FAILED') {
+        dispatchError = (raw as any)?.error || `Attachment delivery was rejected by ${providerName}.`;
+      }
+    } catch (err: any) {
+      dispatchError = err?.message || String(err);
+      deliveryStatus = 'FAILED';
+    }
+
+    const record = await this.prisma.communicationLog.create({
+      data: {
+        recipientType: (input.recipientType || 'PATIENT').toUpperCase(),
+        recipientPhone: recipient,
+        messageType: 'WHATSAPP',
+        messageBody: `Document: ${input.fileName}${input.caption ? ` — ${input.caption}` : ''}`,
+        provider: providerName.toUpperCase(),
+        providerMessageId,
+        deliveryStatus,
+        sentAt: new Date(),
+        costKes: 0,
+      },
+    });
+
+    if (deliveryStatus === 'FAILED') {
+      this.logger.warn(`WhatsApp document to ${recipient} FAILED via ${providerName}.`);
+      throw new ServiceUnavailableException(
+        dispatchError || `Document delivery to ${recipient} failed via ${providerName}.`,
+      );
+    }
     return this.toView(record);
   }
 
@@ -345,12 +417,22 @@ export class CommunicationService implements OnModuleInit {
       } catch {
         parsed = { raw };
       }
+      const balance = parseByteWaveBalance(parsed);
+      const costPerSmsKes = byteWaveCostPerSms();
+      // The portal only exposes a KES balance. Offer a clearly-labelled estimate
+      // rather than leaving the "SMS available" card empty.
+      const estimatedSmsAvailable =
+        balance.smsAvailable === null && balance.balanceKes !== null
+          ? Math.max(0, Math.floor(balance.balanceKes / costPerSmsKes))
+          : null;
       return {
         success: true,
         mode: cfg.mode,
         endpoint: cfg.apiUrl,
         topUpUrl,
-        ...parseByteWaveBalance(parsed),
+        ...balance,
+        costPerSmsKes,
+        estimatedSmsAvailable,
         raw,
       };
     } catch (err: any) {
@@ -361,6 +443,8 @@ export class CommunicationService implements OnModuleInit {
         topUpUrl,
         balanceKes: null,
         smsAvailable: null,
+        costPerSmsKes: byteWaveCostPerSms(),
+        estimatedSmsAvailable: null,
         candidates: [],
         raw: null,
         detail: redact(err?.message || String(err)).slice(0, 500),

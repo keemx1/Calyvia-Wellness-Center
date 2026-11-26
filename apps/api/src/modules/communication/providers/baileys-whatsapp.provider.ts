@@ -5,6 +5,7 @@ import {
   WhatsAppProvider,
   WhatsAppSendInput,
   WhatsAppSendResult,
+  WhatsAppDocumentInput,
   toWhatsAppJid,
 } from './whatsapp-provider';
 
@@ -364,6 +365,29 @@ export class BaileysWhatsAppGateway {
     return { messageId: sent?.key?.id ?? null };
   }
 
+  /** Deliver a real PDF attachment (used for invoices) to a WhatsApp number. */
+  async sendDocument(
+    to: string,
+    buffer: Buffer | Uint8Array,
+    fileName: string,
+    caption?: string,
+  ): Promise<{ messageId: string | null }> {
+    if (this.status !== 'open' || !this.sock) {
+      throw new Error(
+        `WhatsApp session is not connected (state=${this.status}). ` +
+          `Pair the number first via GET /communication/whatsapp/status.`,
+      );
+    }
+    const jid = toWhatsAppJid(to);
+    const sent = await this.sock.sendMessage(jid, {
+      document: buffer,
+      mimetype: 'application/pdf',
+      fileName,
+      ...(caption ? { caption } : {}),
+    });
+    return { messageId: sent?.key?.id ?? null };
+  }
+
   /**
    * Clear a stale/corrupt Baileys session and open a fresh handshake. Useful when
    * WhatsApp closes every attempt before a QR — e.g. credentials left behind by a
@@ -583,6 +607,34 @@ export class BaileysWhatsAppProvider implements WhatsAppProvider {
       };
     } catch (err: any) {
       this.logger.error(`WhatsApp send failed to ${input.to}: ${err?.message || err}`);
+      return {
+        provider: this.name,
+        providerMessageId: null,
+        status: 'FAILED',
+        costKes: 0,
+        raw: { error: String(err?.message || err) },
+      };
+    }
+  }
+
+  async sendDocument(input: WhatsAppDocumentInput): Promise<WhatsAppSendResult> {
+    try {
+      const { messageId } = await this.gateway.sendDocument(
+        input.to,
+        input.buffer,
+        input.fileName,
+        input.caption,
+      );
+      return {
+        provider: this.name,
+        providerMessageId: messageId,
+        status: 'SENT',
+        costKes: 0,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `WhatsApp document ${input.fileName} failed to ${input.to}: ${err?.message || err}`,
+      );
       return {
         provider: this.name,
         providerMessageId: null,

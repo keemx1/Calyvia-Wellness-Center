@@ -16,6 +16,15 @@ export interface WhatsAppSendInput {
   body: string;
 }
 
+export interface WhatsAppDocumentInput {
+  /** Recipient in E.164, e.g. +254712345678. */
+  to: string;
+  /** PDF bytes (or another document buffer) to deliver as a real attachment. */
+  buffer: Buffer | Uint8Array;
+  fileName: string;
+  caption?: string;
+}
+
 export type WhatsAppDeliveryStatus = 'QUEUED' | 'SENT' | 'FAILED';
 
 export interface WhatsAppSendResult {
@@ -31,6 +40,8 @@ export interface WhatsAppSendResult {
 export interface WhatsAppProvider {
   readonly name: string;
   send(input: WhatsAppSendInput): Promise<WhatsAppSendResult>;
+  /** Optional: drivers that support attachments can deliver PDFs (e.g. invoices). */
+  sendDocument?(input: WhatsAppDocumentInput): Promise<WhatsAppSendResult>;
 }
 
 /**
