@@ -14,6 +14,8 @@ import {
   Copy,
   RotateCcw,
   Activity,
+  Wallet,
+  ExternalLink,
 } from 'lucide-react';
 
 interface GatewaySettingsViewProps {
@@ -69,6 +71,8 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
   const [testPhone, setTestPhone] = useState('');
   const [testingSms, setTestingSms] = useState(false);
   const [testResult, setTestResult] = useState<any | null>(null);
+  const [balance, setBalance] = useState<any | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -115,14 +119,38 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, apiUrl]);
 
+  const fetchBalance = useCallback(async () => {
+    if (!token) return;
+    setLoadingBalance(true);
+    try {
+      const res = await fetch(`${apiUrl}/communication/sms-gateway/balance`, {
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && data.success !== false) {
+        throw new Error(data.message || 'ByteWave balance request failed.');
+      }
+      setBalance(data);
+    } catch (err: any) {
+      setBalance({
+        success: false,
+        detail: err?.message || 'Network error reading the ByteWave balance.',
+      });
+    } finally {
+      setLoadingBalance(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, apiUrl]);
+
   useEffect(() => {
     fetchWhatsAppStatus();
     fetchSettings();
+    fetchBalance();
     // Poll the WhatsApp session so the QR appears without a manual refresh.
     const t = setInterval(fetchWhatsAppStatus, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchWhatsAppStatus, fetchSettings]);
+  }, [fetchWhatsAppStatus, fetchSettings, fetchBalance]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -564,6 +592,96 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
               </div>
             ))}
 
+            {/* ByteWave account balance / remaining SMS credits */}
+            <div className="rounded-xl border border-border bg-surface-subtle p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-foreground flex items-center space-x-1.5">
+                  <Wallet className="w-4 h-4 text-primary" />
+                  <span>ByteWave balance</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={fetchBalance}
+                  disabled={loadingBalance}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-border text-foreground hover:bg-card transition disabled:opacity-50"
+                >
+                  {loadingBalance ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {balance?.success ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-border bg-card p-3">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Account balance
+                      </p>
+                      <p className="text-lg font-semibold text-foreground mt-0.5">
+                        {balance.balanceKes !== null && balance.balanceKes !== undefined
+                          ? `KES ${Number(balance.balanceKes).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}`
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-card p-3">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        SMS available
+                      </p>
+                      <p className="text-lg font-semibold text-foreground mt-0.5">
+                        {balance.smsAvailable !== null && balance.smsAvailable !== undefined
+                          ? Number(balance.smsAvailable).toLocaleString()
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {(balance.candidates?.length ?? 0) > 0 &&
+                    (balance.balanceKes === null || balance.smsAvailable === null) && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Provider fields:{' '}
+                        {balance.candidates
+                          .map((c: { key: string; value: string }) => `${c.key}=${c.value}`)
+                          .join(' · ')}
+                      </p>
+                    )}
+
+                  <p className="text-[10px] text-muted-foreground">
+                    Read live from ByteWave with the saved key. ByteWave has no public top-up API —
+                    buy credits in the portal (login required):{' '}
+                    <a
+                      href={balance.topUpUrl || 'https://portal.bytewavenetworks.com/'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center space-x-1 font-semibold text-primary hover:underline"
+                    >
+                      <span>Open ByteWave portal</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </p>
+
+                  <details className="text-[10px] text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Raw provider response</summary>
+                    <pre className="mt-1 p-2 rounded-lg bg-card border border-border overflow-x-auto whitespace-pre-wrap font-mono">
+                      {balance.raw}
+                    </pre>
+                  </details>
+                </>
+              ) : (
+                <p className="text-[11px] text-danger">
+                  {loadingBalance
+                    ? 'Reading balance from ByteWave…'
+                    : balance?.detail || 'Balance unavailable.'}
+                </p>
+              )}
+            </div>
+
             <div className="rounded-xl border border-border bg-surface-subtle p-4 space-y-2">
               <h4 className="text-xs font-semibold text-foreground flex items-center space-x-1.5">
                 <Smartphone className="w-4 h-4 text-primary" />
@@ -579,6 +697,12 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                   type="tel"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleTestSms();
+                    }
+                  }}
                   placeholder="0712345678"
                   className="flex-1 px-3 py-2 rounded-xl border border-border bg-card text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />

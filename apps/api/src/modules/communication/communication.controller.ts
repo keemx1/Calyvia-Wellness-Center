@@ -109,6 +109,18 @@ export class CommunicationController {
     return this.communicationService.testByteWaveSms(body?.recipient);
   }
 
+  @Get('sms-gateway/balance')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({
+    summary: 'Read the ByteWave account balance and remaining SMS credits',
+    description:
+      'SUPER_ADMIN only. Uses the credentials saved in Gateway Credentials. The API key is ' +
+      'never returned. ByteWave has no public top-up API; the response links to the portal.',
+  })
+  async smsGatewayBalance() {
+    return this.communicationService.getByteWaveBalance();
+  }
+
   @Post('whatsapp/pair')
   @ApiOperation({
     summary: 'Request a WhatsApp pairing code for a phone number (no QR scan needed)',

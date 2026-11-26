@@ -10,6 +10,7 @@ import {
   ByteWaveSmsProvider,
   BYTEWAVE_HTTP_BASE,
   BYTEWAVE_OAUTH_BASE,
+  parseByteWaveBalance,
 } from './providers';
 import {
   listSmsTemplates,
@@ -225,12 +226,14 @@ export class CommunicationService implements OnModuleInit {
    * returns the key, and an invalid saved endpoint falls back to the driver default
    * rather than pretending the test succeeded.
    */
-  async testByteWaveSms(recipient?: string) {
-    if (!recipient?.trim()) {
-      throw new BadRequestException('Provide a recipient phone number for the test SMS.');
-    }
-    const to = KenyaUtils.normalizePhoneNumber(recipient.trim());
+  private redactByteWaveSecrets(secrets: string[], text: string): string {
+    return secrets
+      .filter(Boolean)
+      .reduce((acc, secret) => acc.split(secret).join('<redacted>'), text);
+  }
 
+  /** Saved credentials only — the diagnostic endpoints test what the UI saved. */
+  private async byteWaveDbConfig() {
     const read = async (key: string) => (await this.settings.readSetting(key))?.trim() || '';
     const apiKey = await read('gateway.sms.bytewave.api_key');
     if (!apiKey || apiKey === '[ENCRYPTED_DATA_ACCESS_DENIED]') {
@@ -250,7 +253,7 @@ export class CommunicationService implements OnModuleInit {
     const clientId = await read('gateway.sms.bytewave.client_id');
     const clientSecret = await read('gateway.sms.bytewave.client_secret');
 
-    // DB-only resolver: the point of this endpoint is to test exactly what was saved.
+    // DB-only resolver: the point of these endpoints is to use exactly what was saved.
     const values: Record<string, string> = {
       'gateway.sms.bytewave.mode': mode,
       'gateway.sms.bytewave.api_url': apiUrl,
@@ -259,14 +262,31 @@ export class CommunicationService implements OnModuleInit {
       'gateway.sms.bytewave.client_secret': clientSecret,
       'gateway.sms.bytewave.sender_id': senderId,
     };
-    const resolver = { get: async (_envVar: string, key: string) => values[key] };
+    return {
+      mode,
+      apiUrl,
+      savedUrl,
+      senderId,
+      apiKey,
+      clientId,
+      clientSecret,
+      resolver: { get: async (_envVar: string, key: string) => values[key] },
+    };
+  }
+
+  async testByteWaveSms(recipient?: string) {
+    if (!recipient?.trim()) {
+      throw new BadRequestException('Provide a recipient phone number for the test SMS.');
+    }
+    const to = KenyaUtils.normalizePhoneNumber(recipient.trim());
+    const cfg = await this.byteWaveDbConfig();
 
     let result;
     try {
-      result = await new ByteWaveSmsProvider(resolver).send({
+      result = await new ByteWaveSmsProvider(cfg.resolver).send({
         to,
         body: 'Calyvia ByteWave test. Please ignore.',
-        senderId,
+        senderId: cfg.senderId,
       });
     } catch (err: any) {
       // A driver construction failure must never look like a successful test.
@@ -274,34 +294,78 @@ export class CommunicationService implements OnModuleInit {
         success: false,
         status: 'FAILED',
         recipient: to,
-        mode,
-        endpoint: apiUrl,
-        endpointCorrected: apiUrl !== savedUrl,
-        senderId,
+        mode: cfg.mode,
+        endpoint: cfg.apiUrl,
+        endpointCorrected: cfg.apiUrl !== cfg.savedUrl,
+        senderId: cfg.senderId,
         providerMessageId: null,
         costKes: 0,
-        detail: err?.message || String(err),
+        detail: this.redactByteWaveSecrets(
+          [cfg.apiKey, cfg.clientId, cfg.clientSecret],
+          err?.message || String(err),
+        ),
       };
     }
-
-    const redact = (text: string): string =>
-      [apiKey, clientId, clientSecret]
-        .filter(Boolean)
-        .reduce((acc, secret) => acc.split(secret).join('<redacted>'), text);
 
     return {
       success: result.status === 'SENT',
       status: result.status,
       provider: result.provider,
       recipient: to,
-      mode,
-      endpoint: apiUrl,
-      endpointCorrected: apiUrl !== savedUrl,
-      senderId,
+      mode: cfg.mode,
+      endpoint: cfg.apiUrl,
+      endpointCorrected: cfg.apiUrl !== cfg.savedUrl,
+      senderId: cfg.senderId,
       providerMessageId: result.providerMessageId,
       costKes: result.costKes,
-      detail: redact(JSON.stringify(result.raw ?? {})).slice(0, 1000),
+      detail: this.redactByteWaveSecrets(
+        [cfg.apiKey, cfg.clientId, cfg.clientSecret],
+        JSON.stringify(result.raw ?? {}),
+      ).slice(0, 1000),
     };
+  }
+
+  /**
+   * Account balance / remaining SMS credits, read with the saved ByteWave key.
+   * Top-up is not exposed by the portal API, so the UI links to the portal
+   * (login required). Never returns the key, even in the raw preview.
+   */
+  async getByteWaveBalance() {
+    const cfg = await this.byteWaveDbConfig();
+    const topUpUrl = 'https://portal.bytewavenetworks.com/';
+    const redact = (text: string) =>
+      this.redactByteWaveSecrets([cfg.apiKey, cfg.clientId, cfg.clientSecret], text);
+
+    try {
+      const response = await new ByteWaveSmsProvider(cfg.resolver).getBalance();
+      const raw = redact(JSON.stringify(response.raw ?? {})).slice(0, 2000);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+      return {
+        success: true,
+        mode: cfg.mode,
+        endpoint: cfg.apiUrl,
+        topUpUrl,
+        ...parseByteWaveBalance(parsed),
+        raw,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        mode: cfg.mode,
+        endpoint: cfg.apiUrl,
+        topUpUrl,
+        balanceKes: null,
+        smsAvailable: null,
+        candidates: [],
+        raw: null,
+        detail: redact(err?.message || String(err)).slice(0, 500),
+      };
+    }
   }
 
   /** Request a WhatsApp pairing code for a phone number (headless linking). */

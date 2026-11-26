@@ -66,22 +66,10 @@ export const GATEWAY_SETTINGS: GatewaySettingDef[] = [
     secret: true,
     placeholder: 'Paste the key from the portal',
   },
-  {
-    key: 'gateway.sms.bytewave.client_id',
-    envVar: 'BYTEWAVE_CLIENT_ID',
-    label: 'ByteWave OAuth client ID',
-    group: 'SMS',
-    description: 'OAuth2 only. Optional when the combined oc_sk_ key is used.',
-    placeholder: 'e.g. 9f2c7b4a1d08',
-  },
-  {
-    key: 'gateway.sms.bytewave.client_secret',
-    envVar: 'BYTEWAVE_CLIENT_SECRET',
-    label: 'ByteWave OAuth client secret',
-    group: 'SMS',
-    description: 'OAuth2 only. Stored encrypted. Optional when the combined oc_sk_ key is used.',
-    secret: true,
-  },
+  // OAuth client id/secret are intentionally NOT exposed here. This deployment
+  // uses ByteWave's HTTP key; the driver still supports oauth2 from the
+  // environment or a combined oc_sk_ key, but operators no longer see fields
+  // they must never fill in.
   {
     key: 'gateway.sms.bytewave.sender_id',
     envVar: 'BYTEWAVE_SENDER_ID',

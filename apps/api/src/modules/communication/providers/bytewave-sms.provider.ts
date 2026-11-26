@@ -77,6 +77,94 @@ export function splitCombinedKey(apiKey: string): { clientId: string; clientSecr
   return { clientId: m[1], clientSecret: m[2] };
 }
 
+export interface ByteWaveBalanceView {
+  /** Account credit in KES, when the portal reports a monetary balance. */
+  balanceKes: number | null;
+  /** Number of SMS units left, when the portal reports it. */
+  smsAvailable: number | null;
+  /** Raw nested values that looked like a balance, for the UI fallback. */
+  candidates: Array<{ key: string; value: string }>;
+}
+
+const BALANCE_KEYS = [
+  'balance',
+  'account_balance',
+  'accountbalance',
+  'wallet_balance',
+  'walletbalance',
+  'credit_balance',
+  'creditbalance',
+  'current_balance',
+  'currentbalance',
+  'credits',
+  'amount',
+];
+const SMS_KEYS = [
+  'sms_balance',
+  'smsbalance',
+  'sms_available',
+  'smsavailable',
+  'sms_credits',
+  'smscredits',
+  'messages_remaining',
+  'messagesremaining',
+  'remaining_sms',
+  'remainingsms',
+  'sms_count',
+  'smscount',
+  'units',
+];
+
+/** Flatten nested portal JSON into lowercase key -> values (arrays ignored). */
+function balanceFields(raw: any, depth = 0, acc: Record<string, any[]> = {}): Record<string, any[]> {
+  if (!raw || typeof raw !== 'object' || depth > 3) return acc;
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === null || value === undefined || Array.isArray(value)) continue;
+    const k = key.toLowerCase();
+    if (typeof value === 'object') balanceFields(value, depth + 1, acc);
+    else (acc[k] ||= []).push(value);
+  }
+  return acc;
+}
+
+function numeric(value: any): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const match = value.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+    if (match) return Number(match[0]);
+  }
+  return null;
+}
+
+/**
+ * ByteWave's balance payload differs between accounts (`data.balance`,
+ * `data.sms_balance`, nested plan/wallet objects, strings like "KES 120.50").
+ * Pull out the useful numbers without assuming one fixed schema.
+ */
+export function parseByteWaveBalance(raw: any): ByteWaveBalanceView {
+  const fields = balanceFields(raw);
+  const pick = (keys: string[]): number | null => {
+    for (const key of keys) {
+      for (const value of fields[key] ?? []) {
+        const n = numeric(value);
+        if (n !== null) return n;
+      }
+    }
+    return null;
+  };
+
+  const candidates = Object.entries(fields)
+    .filter(([key]) => [...BALANCE_KEYS, ...SMS_KEYS].some((k) => k === key))
+    .flatMap(([key, values]) => values.map((value) => ({ key, value: String(value) })))
+    .slice(0, 8);
+
+  return {
+    balanceKes: pick(BALANCE_KEYS),
+    smsAvailable: pick(SMS_KEYS),
+    candidates,
+  };
+}
+
 export class ByteWaveSmsProvider implements SmsProvider {
   readonly name = 'bytewave';
   private readonly logger = new Logger('ByteWaveSmsProvider');
@@ -159,6 +247,55 @@ export class ByteWaveSmsProvider implements SmsProvider {
   async send(input: SmsSendInput): Promise<SmsSendResult> {
     const cfg = await this.loadConfig();
     return cfg.mode === 'oauth2' ? this.sendViaOAuth(cfg, input) : this.sendViaHttp(cfg, input);
+  }
+
+  /**
+   * Read the account balance from ByteWave. The portal exposes
+   * GET /api/http/balance?api_token=... for plain HTTP keys and
+   * GET /api/v3/balance for bearer-authenticated accounts. We try both shapes
+   * because the exact response fields differ between accounts; the raw payload
+   * is returned so the UI can show whatever the portal reports.
+   */
+  async getBalance(): Promise<{ status: 'OK' | 'FAILED'; raw: any }> {
+    const cfg = await this.loadConfig();
+    const attempts: Array<{ url: string; headers: Record<string, string> }> = [];
+
+    if (cfg.mode === 'http') {
+      for (const suffix of ['balance', 'sms/balance']) {
+        const u = new URL(joinUrl(cfg.apiUrl, suffix));
+        u.searchParams.set(cfg.keyParam, cfg.apiKey);
+        attempts.push({ url: u.toString(), headers: { Accept: 'application/json' } });
+      }
+    } else {
+      const token = await this.fetchOAuthToken(cfg);
+      for (const suffix of ['balance', 'sms/balance']) {
+        attempts.push({
+          url: joinUrl(cfg.apiUrl, suffix),
+          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        });
+      }
+    }
+
+    let lastError = 'ByteWave did not return a balance.';
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch(attempt.url, { headers: attempt.headers });
+        const text = await res.text();
+        let parsed: any;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = { raw: text };
+        }
+        if (res.ok && parsed && parsed.status !== 'error' && !parsed.error) {
+          return { status: 'OK', raw: parsed };
+        }
+        lastError = `${attempt.url.split('?')[0]} -> ${text.slice(0, 160)}`;
+      } catch (err: any) {
+        lastError = `${attempt.url.split('?')[0]} failed: ${err?.message || err}`;
+      }
+    }
+    throw new Error(lastError);
   }
 
   // ---------------------------------------------------------------- HTTP API --

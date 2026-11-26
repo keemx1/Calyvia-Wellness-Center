@@ -1,4 +1,9 @@
-import { ByteWaveSmsProvider, sanitizeByteWaveUrl, splitCombinedKey } from './bytewave-sms.provider';
+import {
+  ByteWaveSmsProvider,
+  parseByteWaveBalance,
+  sanitizeByteWaveUrl,
+  splitCombinedKey,
+} from './bytewave-sms.provider';
 import { ConfigResolver } from './config-resolver';
 
 function makeResolver(db: Record<string, string> = {}): ConfigResolver & { get: jest.Mock } {
@@ -241,5 +246,57 @@ describe('ByteWaveSmsProvider (HTTP + OAuth2)', () => {
     await expect(
       new ByteWaveSmsProvider(resolver).send({ to: '+254712345678', body: 'Hi' }),
     ).rejects.toThrow(/OAuth2 is not configured/);
+  });
+
+  it('normalizes the balance shapes returned by ByteWave', () => {
+    expect(
+      parseByteWaveBalance({
+        status: 'success',
+        data: { balance: 'KES 1,234.50', sms_balance: '420' },
+      }),
+    ).toMatchObject({ balanceKes: 1234.5, smsAvailable: 420 });
+    expect(
+      parseByteWaveBalance({ data: { wallet: { current_balance: 99.5, units: 12 } } }),
+    ).toMatchObject({ balanceKes: 99.5, smsAvailable: 12 });
+    expect(parseByteWaveBalance({ status: 'error', message: 'nope' })).toMatchObject({
+      balanceKes: null,
+      smsAvailable: null,
+    });
+  });
+
+  it('reads /api/http/balance with the saved api_token', async () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({ status: 'success', data: { balance: 245.75, sms_balance: '980' } }),
+    } as any);
+
+    const resolver = makeResolver({ 'gateway.sms.bytewave.api_key': 'bal-key' });
+    const result = await new ByteWaveSmsProvider(resolver).getBalance();
+
+    expect(result.status).toBe('OK');
+    expect(result.raw).toMatchObject({ data: { balance: 245.75 } });
+    const url = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(url.pathname).toBe('/api/http/balance');
+    expect(url.searchParams.get('api_token')).toBe('bal-key');
+  });
+
+  it('never reports a balance when the portal rejects the key', async () => {
+    jest
+      .spyOn(globalThis, 'fetch' as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ status: 'error', message: 'bad token' }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ status: 'error', message: 'bad token' }),
+      } as any);
+
+    const resolver = makeResolver({ 'gateway.sms.bytewave.api_key': 'bal-key' });
+    await expect(new ByteWaveSmsProvider(resolver).getBalance()).rejects.toThrow(/bad token/);
   });
 });
