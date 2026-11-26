@@ -8,15 +8,27 @@ import {
   bootstrapWhatsApp,
   getBaileysGateway,
 } from './providers';
+import {
+  listSmsTemplates,
+  saveSmsTemplates,
+  resolveSmsTemplateBody,
+  SMS_TEMPLATE_SETTING_KEY,
+  SmsTemplate,
+} from './sms-templates';
 
 export interface SendMessageDto {
   recipient: string;
   channel: CommunicationChannel;
   /** Kept for API compatibility. SMS/WhatsApp have no subject line, so it is not persisted. */
   subject?: string;
-  body: string;
+  /** Optional when `templateKey` is supplied — the rendered template becomes the body. */
+  body?: string;
   /** 'PATIENT' | 'FAMILY' | 'STAFF'. Stored in communication_logs.recipient_type. */
   recipientType?: string;
+  /** Optional operator-edited template to render instead of supplying `body`. */
+  templateKey?: string;
+  /** Values for {{placeholders}} in the template. */
+  variables?: Record<string, unknown>;
 }
 
 /**
@@ -52,7 +64,11 @@ export class CommunicationService implements OnModuleInit {
   }
 
   async sendMessage(dto: SendMessageDto) {
-    const body = (dto.body || '').trim();
+    // A template (when selected) is the single source of the outbound text —
+    // an explicitly supplied body is ignored so logs always match what went out.
+    const body = dto.templateKey
+      ? await resolveSmsTemplateBody(this.settings, dto.templateKey, dto.variables)
+      : (dto.body || '').trim();
     if (!body) throw new BadRequestException('Message body is required.');
     if (!dto.recipient?.trim()) throw new BadRequestException('Recipient is required.');
 
@@ -156,6 +172,29 @@ export class CommunicationService implements OnModuleInit {
       this.logger.warn(`Communication logs fetch error: ${(err as any)?.message || err}`);
       return [];
     }
+  }
+
+  /** All SMS message formats, with operator edits layered over the defaults. */
+  getSmsTemplates(): Promise<SmsTemplate[]> {
+    return listSmsTemplates(this.settings);
+  }
+
+  /** Persist operator edits to the SMS message formats. */
+  updateSmsTemplates(entries: unknown): Promise<SmsTemplate[]> {
+    return saveSmsTemplates(this.settings, entries);
+  }
+
+  /** Render a template without dispatching anything, for the admin preview. */
+  async previewSmsTemplate(key: string, variables: Record<string, unknown> = {}) {
+    return { key, body: await resolveSmsTemplateBody(this.settings, key, variables) };
+  }
+
+  /** Discard operator edits and restore the built-in message formats. */
+  async resetSmsTemplates(): Promise<SmsTemplate[]> {
+    await this.settings.set(SMS_TEMPLATE_SETTING_KEY, '', {
+      description: 'SMS templates reset to built-in defaults',
+    });
+    return this.getSmsTemplates();
   }
 
   /** Live status of the WhatsApp (Baileys) session, including pairing material. */

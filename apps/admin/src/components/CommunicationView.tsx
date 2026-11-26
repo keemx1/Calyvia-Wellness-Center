@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { GatewaySettingsView } from './GatewaySettingsView';
+import { SmsTemplatesView } from './SmsTemplatesView';
 
 interface CommunicationViewProps {
   token: string | null;
@@ -22,7 +23,9 @@ interface CommunicationViewProps {
 }
 
 export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, apiUrl }) => {
-  const [activeTab, setActiveTab] = useState<'communication' | 'feedback' | 'gateway'>('communication');
+  const [activeTab, setActiveTab] = useState<
+    'communication' | 'feedback' | 'gateway' | 'templates'
+  >('communication');
   const [commLogs, setCommLogs] = useState<any[]>([]);
   const [feedbackSummary, setFeedbackSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +40,11 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
     channel: 'SMS',
     subject: '',
     body: '',
+    templateKey: '',
   });
+  const [sendTemplates, setSendTemplates] = useState<any[]>([]);
+  const [templateVars, setTemplateVars] = useState<Record<string, string>>({});
+  const selectedSendTemplate = sendTemplates.find((t) => t.key === sendForm.templateKey);
 
   const [surveyForm, setSurveyForm] = useState({
     rating: 5,
@@ -84,6 +91,21 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
     }
   }, [token, apiUrl]);
 
+  const openSendModal = useCallback(async () => {
+    setIsModalOpen(true);
+    setFeedbackMsg(null);
+    if (!token || sendTemplates.length) return;
+    try {
+      const res = await fetch(`${apiUrl}/communication/sms-templates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setSendTemplates(await res.json());
+    } catch {
+      /* The message can still be sent as free text. */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, apiUrl, sendTemplates.length]);
+
   useEffect(() => {
     if (activeTab === 'communication') fetchLogs();
     if (activeTab === 'feedback') fetchFeedback();
@@ -97,12 +119,16 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
       const res = await fetch(`${apiUrl}/communication/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(sendForm),
+        body: JSON.stringify({
+          ...sendForm,
+          variables: sendForm.templateKey ? templateVars : undefined,
+        }),
       });
       if (res.ok) {
         setFeedbackMsg({ type: 'success', text: 'Communication queued and dispatched to telecom gateway.' });
         setIsModalOpen(false);
-        setSendForm({ recipient: '', channel: 'SMS', subject: '', body: '' });
+        setSendForm({ recipient: '', channel: 'SMS', subject: '', body: '', templateKey: '' });
+        setTemplateVars({});
         fetchLogs();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -154,7 +180,7 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
           <div className="flex items-center space-x-2">
             {activeTab === 'communication' && (
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={openSendModal}
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs transition"
               >
                 <Send className="w-4 h-4" />
@@ -221,9 +247,33 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
           >
             WhatsApp & Gateway Setup
           </button>
+          <button
+            onClick={() => setActiveTab('templates')}
+            className={`pb-2.5 transition border-b-2 ${
+              activeTab === 'templates'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            SMS Templates
+          </button>
         </div>
 
         {activeTab === 'gateway' && <GatewaySettingsView token={token} apiUrl={apiUrl} />}
+
+        {activeTab === 'templates' && (
+          <SmsTemplatesView
+            token={token}
+            apiUrl={apiUrl}
+            onUseTemplate={(body) => {
+              setSendForm((prev) => ({ ...prev, channel: 'SMS', body, templateKey: '' }));
+              setTemplateVars({});
+              setActiveTab('communication');
+              setIsModalOpen(true);
+              setFeedbackMsg(null);
+            }}
+          />
+        )}
 
         {activeTab === 'communication' && (
           <div className="overflow-x-auto rounded-xl border border-border mt-3">
@@ -361,10 +411,57 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
               </div>
 
               <div>
-                <label className="block text-foreground font-semibold mb-1">Message Body</label>
+                <label className="block text-foreground font-semibold mb-1">
+                  Message format (optional)
+                </label>
+                <select
+                  value={sendForm.templateKey}
+                  onChange={(e) => {
+                    const key = e.target.value;
+                    const tpl = sendTemplates.find((t) => t.key === key);
+                    setSendForm({ ...sendForm, templateKey: key });
+                    setTemplateVars(
+                      Object.fromEntries((tpl?.variables ?? []).map((v: string) => [v, ''])),
+                    );
+                  }}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                >
+                  <option value="">— Write a custom message —</option>
+                  {sendTemplates.map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label} ({t.key})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedSendTemplate?.variables?.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-xl bg-surface-subtle border border-border p-3">
+                  {selectedSendTemplate.variables.map((v: string) => (
+                    <div key={v}>
+                      <label className="block text-[10px] font-mono text-muted-foreground mb-0.5">
+                        {`{{${v}}}`}
+                      </label>
+                      <input
+                        value={templateVars[v] ?? ''}
+                        onChange={(e) =>
+                          setTemplateVars((prev) => ({ ...prev, [v]: e.target.value }))
+                        }
+                        placeholder={v.replace(/_/g, ' ')}
+                        className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-[11px] text-foreground focus:outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-foreground font-semibold mb-1">
+                  {sendForm.templateKey ? 'Message Body (ignored — template will be rendered)' : 'Message Body'}
+                </label>
                 <textarea
                   rows={3}
-                  required
+                  required={!sendForm.templateKey}
                   placeholder="e.g. Dear Family, this is Calyvia Wellness Center confirming your consultation tomorrow at 10:00 AM..."
                   value={sendForm.body}
                   onChange={(e) => setSendForm({ ...sendForm, body: e.target.value })}

@@ -29,8 +29,10 @@ import {
  *
  * Config:
  *   BAILEYS_AUTH_DIR   Where the login session is persisted (default .baileys-auth)
- *   BAILEYS_PAIRING_MS Phone number (E.164) used to request a pairing code instead
- *                      of a QR, for headless servers.
+ *   BAILEYS_CLIENT_VERSION     Pin the client revision sent in the handshake.
+ *   BAILEYS_USE_LATEST_VERSION Opt in to the revision from Baileys' GitHub master.
+ *                              Leave unset: using a revision newer than this
+ *                              installed library gets the socket closed with 428.
  */
 export class BaileysWhatsAppGateway {
   private readonly logger = new Logger('BaileysWhatsAppGateway');
@@ -49,10 +51,10 @@ export class BaileysWhatsAppGateway {
   private lastDisconnect: { statusCode: number | null; message: string | null; at: string } | null =
     null;
   /** WhatsApp web protocol version in use and where it came from. */
-  private versionInfo: { version: [number, number, number] | null; source: 'latest' | 'bundled' } = {
-    version: null,
-    source: 'bundled',
-  };
+  private versionInfo: {
+    version: [number, number, number] | null;
+    source: 'latest' | 'bundled' | 'override';
+  } = { version: null, source: 'bundled' };
   /** Waiters parked until a QR arrives (pairing codes need a live handshake). */
   private qrWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 
@@ -68,6 +70,51 @@ export class BaileysWhatsAppGateway {
       this.starting = null;
     });
     return this.starting;
+  }
+
+  /**
+   * Decide which client revision to advertise in the WhatsApp handshake.
+   *
+   * Default: `undefined`, which makes Baileys use the version bundled with the
+   * installed package — the only combination guaranteed to speak the protocol
+   * this library implements. Overrides are explicit operator choices:
+   *   BAILEYS_CLIENT_VERSION=2.3000.1043857760  pin a specific revision
+   *   BAILEYS_USE_LATEST_VERSION=true            opt into the GitHub master revision
+   */
+  async resolveVersion(): Promise<[number, number, number] | undefined> {
+    const pinned = process.env.BAILEYS_CLIENT_VERSION?.trim();
+    if (pinned) {
+      const parts = pinned.split('.').map(Number);
+      if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n) || n < 0)) {
+        throw new Error(
+          `BAILEYS_CLIENT_VERSION="${pinned}" is invalid; expected three numbers, e.g. 2.3000.1043857760.`,
+        );
+      }
+      this.versionInfo = { version: parts as [number, number, number], source: 'override' };
+      this.logger.warn(`Using pinned WhatsApp client revision ${pinned}.`);
+      return this.versionInfo.version!;
+    }
+
+    if (process.env.BAILEYS_USE_LATEST_VERSION?.trim().toLowerCase() === 'true') {
+      try {
+        const latest = await this.withTimeout<any>(
+          this.baileys.fetchLatestBaileysVersion(),
+          15_000,
+          'fetchLatestBaileysVersion',
+        );
+        if (latest?.version) {
+          this.versionInfo = { version: latest.version, source: 'latest' };
+          return latest.version;
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not fetch latest Baileys version, using bundled default: ${err?.message || err}`,
+        );
+      }
+    }
+
+    this.versionInfo = { version: null, source: 'bundled' };
+    return undefined;
   }
 
   private async doStart(): Promise<void> {
@@ -89,23 +136,11 @@ export class BaileysWhatsAppGateway {
     const { state, saveCreds } = await this.baileys.useMultiFileAuthState(this.authDir);
     this.saveCreds = saveCreds;
 
-    let version: [number, number, number] | undefined;
-    try {
-      // Never let a hung version check stall API boot: Nest waits for
-      // onModuleInit, so an unsettled promise here means the app never listens.
-      const latest = await this.withTimeout<any>(
-        this.baileys.fetchLatestBaileysVersion(),
-        15_000,
-        'fetchLatestBaileysVersion',
-      );
-      version = latest?.version;
-      if (version) this.versionInfo = { version, source: 'latest' };
-    } catch (err: any) {
-      this.versionInfo = { version: null, source: 'bundled' };
-      this.logger.warn(
-        `Using bundled Baileys version (latest-version check failed: ${err?.message || err})`,
-      );
-    }
+    // DO NOT fetch the version from Baileys' GitHub master by default. That file
+    // tracks the library's next release, not the 6.7.24 installed here; sending
+    // that newer client revision in the handshake makes WhatsApp terminate the
+    // websocket with 428 before a QR is ever issued.
+    const version = await this.resolveVersion();
 
     this.status = 'connecting';
     const browser = this.baileys.Browsers?.ubuntu
@@ -162,12 +197,21 @@ export class BaileysWhatsAppGateway {
         lastDisconnect?.error?.output?.payload?.message ||
         null;
       this.lastDisconnect = { statusCode, message, at: new Date().toISOString() };
+      // A stale QR is worse than no QR: operators scan it and link nothing.
+      this.qr = null;
 
       const loggedOut = statusCode === this.baileys?.DisconnectReason?.loggedOut;
       this.status = loggedOut ? 'closed' : 'disconnected';
-      this.logger.warn(
-        `WhatsApp connection closed (code=${statusCode ?? 'unknown'}${message ? `, ${message}` : ''}).`,
-      );
+      const detail = `${statusCode ?? 'no-code'}${message ? ` — ${message}` : ''}`;
+      this.logger.warn(`WhatsApp connection closed (code=${detail}).`);
+
+      const hint =
+        statusCode === 428
+          ? ' The websocket was terminated during the handshake. Check outbound WebSocket access ' +
+            'to wss://web.whatsapp.net (proxy/firewall) and keep BAILEYS_USE_LATEST_VERSION unset ' +
+            'so the installed Baileys protocol revision is used.'
+          : '';
+      const closeError = new Error(`WhatsApp connection closed (code=${detail}).${hint}`);
 
       if (loggedOut) {
         this.logger.error(
@@ -175,6 +219,8 @@ export class BaileysWhatsAppGateway {
         );
         this.rejectQrWaiters(new Error('WhatsApp session was logged out; re-pair required.'));
       } else {
+        // Don't park pairing callers for 25s on a socket that is already dead.
+        this.rejectQrWaiters(closeError);
         this.scheduleReconnect();
       }
     }
@@ -205,8 +251,9 @@ export class BaileysWhatsAppGateway {
         reject(
           new Error(
             `WhatsApp socket did not reach pairing state within ${Math.round(ms / 1000)}s (${reason}). ` +
-              'The API server may be unable to reach WhatsApp on port 443 (firewall/proxy egress), ' +
-              'or the Baileys protocol version is being rejected.',
+              'Check outbound WebSocket access to wss://web.whatsapp.net (port 443) and that ' +
+              'BAILEYS_USE_LATEST_VERSION is not forcing a protocol revision newer than this ' +
+              'Baileys installation.',
           ),
         );
       }, ms);

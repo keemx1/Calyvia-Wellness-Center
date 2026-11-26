@@ -85,6 +85,8 @@ secret** — it is the identity of the linked account (see §5).
 | Sends return `FAILED` with "not connected" | Socket not open | Check `/whatsapp/status`; pair if needed |
 | `Cannot find module '@whiskeysockets/baileys'` | Package not installed | `npm i @whiskeysockets/baileys@^6.7.24` |
 | QR never appears | Server started with a stale auth dir | Delete `BAILEYS_AUTH_DIR` contents and restart |
+| `lastDisconnect: { statusCode: 428, message: "Connection Terminated" }` in `/whatsapp/status` | WebSocket handshake rejected: either egress proxy/firewall blocks `wss://web.whatsapp.net`, or a client revision newer than the installed Baileys was advertised | Leave `BAILEYS_USE_LATEST_VERSION` unset (default). Test egress from the container: `node -e "fetch('https://web.whatsapp.net/').then(r=>console.log(r.status)).catch(e=>console.log(e.message))"`. Only then consider a deliberate pin via `BAILEYS_CLIENT_VERSION=2.3000.1043857760`. |
+| Pair returns "did not reach pairing state" | Socket closed before a QR was issued | The error now includes the real close code/message. Fix that cause first — pairing codes cannot be requested on a dead socket. |
 
 ## 5. Security & privacy
 

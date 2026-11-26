@@ -41,7 +41,7 @@ interface WhatsAppStatus {
   authDir: string;
   lastDisconnect?: { statusCode: number | null; message: string | null; at: string } | null;
   baileysVersion?: string | null;
-  versionSource?: 'latest' | 'bundled';
+  versionSource?: 'latest' | 'bundled' | 'override';
 }
 
 const STATUS_STYLES: Record<string, { label: string; className: string }> = {
@@ -321,10 +321,13 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 directory <strong>is a credential</strong> — it must survive deploys and must never be
                 committed to git.
               </p>
-              {waStatus?.baileysVersion && (
+              {waStatus?.versionSource && (
                 <p className="text-[11px] text-muted-foreground">
-                  Protocol: <code className="font-mono">{waStatus.baileysVersion}</code> (
-                  {waStatus.versionSource})
+                  Protocol:{' '}
+                  <code className="font-mono">
+                    {waStatus.baileysVersion ?? 'bundled default'}
+                  </code>{' '}
+                  ({waStatus.versionSource})
                 </p>
               )}
             </div>

@@ -98,4 +98,57 @@ describe('BaileysWhatsAppGateway', () => {
       versionSource: 'bundled',
     });
   });
+
+  it('uses the bundled protocol revision by default (no GitHub master fetch)', async () => {
+    const gw = makeGateway();
+    const fetchLatest = jest.fn();
+    (gw as any).baileys.fetchLatestBaileysVersion = fetchLatest;
+    delete process.env.BAILEYS_USE_LATEST_VERSION;
+    delete process.env.BAILEYS_CLIENT_VERSION;
+
+    await expect(gw.resolveVersion()).resolves.toBeUndefined();
+    expect(fetchLatest).not.toHaveBeenCalled();
+    expect(gw.getStatus()).toMatchObject({ versionSource: 'bundled', baileysVersion: null });
+  });
+
+  it('honours an explicitly pinned client revision', async () => {
+    const gw = makeGateway();
+    process.env.BAILEYS_CLIENT_VERSION = '2.3000.1043857760';
+    try {
+      await expect(gw.resolveVersion()).resolves.toEqual([2, 3000, 1043857760]);
+      expect(gw.getStatus()).toMatchObject({
+        versionSource: 'override',
+        baileysVersion: '2.3000.1043857760',
+      });
+    } finally {
+      delete process.env.BAILEYS_CLIENT_VERSION;
+    }
+  });
+
+  it('rejects a malformed pinned revision instead of sending garbage to WhatsApp', async () => {
+    const gw = makeGateway();
+    process.env.BAILEYS_CLIENT_VERSION = 'latest';
+    try {
+      await expect(gw.resolveVersion()).rejects.toThrow(/invalid/);
+    } finally {
+      delete process.env.BAILEYS_CLIENT_VERSION;
+    }
+  });
+
+  it('fails a pending pairing request immediately when the socket closes with 428', async () => {
+    const gw = makeGateway();
+    const waiting = (gw as any).waitForQr(5000);
+
+    gw.handleConnectionUpdate({
+      connection: 'close',
+      lastDisconnect: { error: { message: 'Connection Terminated', output: { statusCode: 428 } } },
+    });
+
+    await expect(waiting).rejects.toThrow(/code=428.*WebSocket access/s);
+    expect(gw.getStatus()).toMatchObject({
+      status: 'disconnected',
+      lastDisconnect: { statusCode: 428, message: 'Connection Terminated' },
+      qr: null,
+    });
+  });
 });

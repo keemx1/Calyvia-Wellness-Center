@@ -68,6 +68,39 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
     expect(service).toBeDefined();
   });
 
+  it('renders a saved message format instead of dispatching a raw body', async () => {
+    await service.sendMessage({
+      recipient: '0712345678',
+      channel: CommunicationChannel.SMS,
+      templateKey: 'APPOINTMENT_REMINDER',
+      variables: {
+        patient_name: 'Hannah',
+        facility: 'Calyvia Wellness Center',
+        appointment_date: '27 Nov at 10:00 AM',
+        phone: '+254700534306',
+      },
+      body: 'this must be ignored when a template is selected',
+    });
+
+    const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
+    expect(data.messageBody).toContain('Hannah');
+    expect(data.messageBody).toContain('27 Nov at 10:00 AM');
+    expect(data.messageBody).not.toContain('{{');
+    expect(data.messageBody).not.toContain('this must be ignored');
+  });
+
+  it('rejects a template with missing variables before any dispatch', async () => {
+    await expect(
+      service.sendMessage({
+        recipient: '0712345678',
+        channel: CommunicationChannel.SMS,
+        templateKey: 'APPOINTMENT_REMINDER',
+        variables: { patient_name: 'Hannah' },
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockPrisma.communicationLog.create).not.toHaveBeenCalled();
+  });
+
   describe('schema mapping (regression)', () => {
     it('persists using the real column names of communication_logs', async () => {
       await service.sendMessage({
