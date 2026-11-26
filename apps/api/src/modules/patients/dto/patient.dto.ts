@@ -65,6 +65,44 @@ export class CreatePatientDto {
   @IsString()
   @IsOptional()
   substanceHistory?: string;
+
+  @ApiPropertyOptional({ example: 'Mary Wanjiku', description: 'Parent or guardian responsible for the client' })
+  @IsString()
+  @IsOptional()
+  guardianName?: string;
+
+  @ApiPropertyOptional({ example: '0712345678', description: 'Guardian number that receives SMS updates' })
+  @IsString()
+  @IsOptional()
+  guardianPhone?: string;
+
+  @ApiPropertyOptional({ example: '0712345678', description: 'Guardian number that receives WhatsApp updates' })
+  @IsString()
+  @IsOptional()
+  guardianWhatsApp?: string;
+
+  @ApiPropertyOptional({ example: 'mary@example.co.ke' })
+  @IsEmail()
+  @IsOptional()
+  guardianEmail?: string;
+}
+
+/** Base64 JSON upload so private Supabase storage stays server-side only. */
+export class UploadPatientPhotoDto {
+  @ApiProperty({ example: 'passport.jpg' })
+  @IsString()
+  @IsNotEmpty()
+  fileName!: string;
+
+  @ApiProperty({ example: 'image/jpeg' })
+  @IsString()
+  @IsNotEmpty()
+  mimeType!: string;
+
+  @ApiProperty({ description: 'Base64-encoded image bytes (data URL prefix is accepted)' })
+  @IsString()
+  @IsNotEmpty()
+  dataBase64!: string;
 }
 
 export class UpdatePatientDto {

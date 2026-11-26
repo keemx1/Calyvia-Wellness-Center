@@ -202,6 +202,15 @@ describe('BillingService (Invoicing Center)', () => {
     expect(result).toMatchObject({ success: true, invoiceNumber: 'INV-2026-0042' });
   });
 
+  it('filters invoices by patient id for the patient dashboard', async () => {
+    await service.getInvoices('patient-1');
+
+    expect(mockPrisma.invoice.findMany).toHaveBeenCalledWith({
+      where: { patientId: 'patient-1' },
+      orderBy: { issueDate: 'desc' },
+    });
+  });
+
   it('should trigger M-Pesa STK Push handshake without failure', async () => {
     const res = await service.triggerDarajaStk({
       invoiceId: 'inv-test-1',

@@ -23,6 +23,17 @@ interface CommunicationViewProps {
   apiUrl: string;
 }
 
+const deliveryTone = (status: string) => {
+  const value = String(status || '').toUpperCase();
+  if (['FAILED', 'BOUNCED', 'REJECTED', 'ERROR'].includes(value)) {
+    return 'bg-destructive-soft text-destructive border-destructive/30';
+  }
+  if (['QUEUED', 'PENDING', 'SENDING'].includes(value)) {
+    return 'bg-warning-soft text-warning border-warning/30';
+  }
+  return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
+};
+
 export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, apiUrl }) => {
   const [activeTab, setActiveTab] = useState<
     'communication' | 'feedback' | 'gateway' | 'templates'
@@ -331,18 +342,25 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                     </td>
                   </tr>
                 ) : (
-                  commLogs.map((l) => (
-                    <tr key={l.id} className="hover:bg-surface-subtle transition-colors">
+                  commLogs.map((l) => {
+                    const failed = /FAILED|BOUNCED|REJECTED|ERROR/i.test(String(l.status || ''));
+                    return (
+                    <tr
+                      key={l.id}
+                      className={`transition-colors ${
+                        failed ? 'bg-destructive-soft/60 hover:bg-destructive-soft' : 'hover:bg-surface-subtle'
+                      }`}
+                    >
                       <td className="px-4 py-3 font-mono font-semibold text-foreground">{l.recipient}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary-soft text-primary">
                           {l.channel}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-foreground max-w-sm truncate">{l.body}</td>
+                      <td className={`px-4 py-3 max-w-sm truncate ${failed ? 'text-destructive' : 'text-foreground'}`}>{l.body}</td>
                       <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{l.providerRef || 'GATEWAY-OK'}</td>
                       <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${deliveryTone(l.status)}`}>
                           {l.status || 'DELIVERED'}
                         </span>
                       </td>
@@ -362,8 +380,8 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                         </button>
                       </td>
                     </tr>
-                  ))
-                )}
+                    );
+                  }))}
               </tbody>
             </table>
           </div>

@@ -1,7 +1,11 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PatientsService } from './patients.service';
-import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
+import {
+  CreatePatientDto,
+  UpdatePatientDto,
+  UploadPatientPhotoDto,
+} from './dto/patient.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -69,6 +73,40 @@ export class PatientsController {
   @ApiOperation({ summary: 'Get full clinical and demographic patient details by UUID' })
   async findOne(@Param('id') id: string) {
     return this.patientsService.findOne(id);
+  }
+
+  @Get(':id/photos')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.FACILITY_ADMIN,
+    UserRole.MEDICAL_DIRECTOR,
+    UserRole.DOCTOR_PSYCHIATRIST,
+    UserRole.NURSE,
+    UserRole.COUNSELLOR,
+    UserRole.PHARMACIST,
+    UserRole.ADMISSIONS_FRONT_DESK,
+    UserRole.FINANCE_BILLING,
+    UserRole.MANAGEMENT_EXECUTIVE,
+  )
+  @AuditLog({ action: 'VIEW_PATIENT_PHOTOS', resource: 'PATIENT' })
+  @ApiOperation({ summary: 'List patient passport photos as time-limited signed URLs' })
+  async listPhotos(@Param('id') id: string) {
+    return this.patientsService.listPatientPhotos(id);
+  }
+
+  @Post(':id/photos')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.FACILITY_ADMIN,
+    UserRole.ADMISSIONS_FRONT_DESK,
+    UserRole.MEDICAL_DIRECTOR,
+    UserRole.DOCTOR_PSYCHIATRIST,
+    UserRole.NURSE,
+  )
+  @AuditLog({ action: 'UPLOAD_PATIENT_PHOTO', resource: 'PATIENT' })
+  @ApiOperation({ summary: 'Store a patient passport photo in private Supabase storage' })
+  async uploadPhoto(@Param('id') id: string, @Body() dto: UploadPatientPhotoDto) {
+    return this.patientsService.uploadPatientPhoto(id, dto);
   }
 
   @Patch(':id')

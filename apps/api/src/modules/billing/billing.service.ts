@@ -397,10 +397,11 @@ export class BillingService {
     return { success: true, id, invoiceNumber: this.invoiceNumber(invoice) };
   }
 
-  async getInvoices() {
+  async getInvoices(patientId?: string) {
     try {
       if (this.prisma && this.prisma.invoice) {
         const invoices = await this.prisma.invoice.findMany({
+          ...(patientId ? { where: { patientId } } : {}),
           orderBy: { issueDate: 'desc' },
         });
         return await Promise.all(

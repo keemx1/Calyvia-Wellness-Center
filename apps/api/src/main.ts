@@ -11,6 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalHttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -23,7 +24,11 @@ async function bootstrap() {
     console.error('[unhandledRejection]', reason);
   });
 
-  const app = await NestFactory.create(AppModule);
+  // Passport photos arrive as base64 JSON; the Express default (100 KB) is
+  // too small for a 5 MB image, so parse bodies here with an explicit limit.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   // Security middlewares
   app.use(helmet());

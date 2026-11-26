@@ -63,6 +63,15 @@ export const DEFAULT_SMS_TEMPLATES: SmsTemplate[] = [
     enabled: true,
   },
   {
+    key: 'GUARDIAN_WELCOME',
+    label: 'Guardian / parent welcome',
+    category: 'FAMILY',
+    description: 'Sent on SMS and WhatsApp to the parent or guardian entered at registration.',
+    body: 'Hello {{caregiver_name}}, {{patient_name}} has been registered at {{facility}}. We will keep you informed about their care and next steps. Questions? Call {{phone}}.',
+    variables: ['caregiver_name', 'patient_name', 'facility', 'phone'],
+    enabled: true,
+  },
+  {
     key: 'ADMISSION_CONFIRMATION',
     label: 'Admission confirmed',
     category: 'ADMISSION',

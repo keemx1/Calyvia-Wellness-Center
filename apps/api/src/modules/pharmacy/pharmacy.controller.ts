@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PharmacyService, CreatePrescriptionDto, AdministerMedicationDto } from './pharmacy.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -25,6 +25,20 @@ export class PharmacyController {
   @ApiOperation({ summary: 'List medications in formulary with current stock and alert levels' })
   async getMedications() {
     return this.pharmacyService.getMedications();
+  }
+
+  @Get('patient/:patientId/medications')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.PHARMACIST,
+    UserRole.DOCTOR_PSYCHIATRIST,
+    UserRole.NURSE,
+    UserRole.MEDICAL_DIRECTOR,
+    UserRole.FINANCE_BILLING,
+  )
+  @ApiOperation({ summary: 'List medications and prescriptions for one patient' })
+  async getPatientMedications(@Param('patientId') patientId: string) {
+    return this.pharmacyService.getPatientMedications(patientId);
   }
 
   @Post('prescriptions')

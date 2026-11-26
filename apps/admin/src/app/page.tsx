@@ -76,6 +76,7 @@ import { CommunicationView } from '../components/CommunicationView';
 import { RoomsView } from '../components/RoomsView';
 import { AutomationView } from '../components/AutomationView';
 import { BillingView } from '../components/BillingView';
+import { PatientDashboardView } from '../components/PatientDashboardView';
 import { BottomNav } from '../components/BottomNav';
 
 const MODULE_TITLES: Record<string, string> = {
@@ -183,6 +184,7 @@ export default function AdminDashboardPage() {
   const [patientSearch, setPatientSearch] = useState<string>('');
   const [patientStatusFilter, setPatientStatusFilter] = useState<string>('ALL');
   const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
   // Admin-Controlled Staff Account Management State
   const [staffAccounts, setStaffAccounts] = useState<Array<any>>([]);
@@ -513,14 +515,19 @@ export default function AdminDashboardPage() {
   };
 
   // Patient Registration Form State
-  const [newPatient, setNewPatient] = useState({
+  const emptyPatientForm = {
     firstName: '',
     lastName: '',
     gender: 'MALE',
     phone: '',
     county: 'Kiambu',
     substance: 'Alcohol',
-  });
+    guardianName: '',
+    guardianPhone: '',
+    guardianWhatsApp: '',
+    guardianEmail: '',
+  };
+  const [newPatient, setNewPatient] = useState(emptyPatientForm);
 
   // New Appointment Form State
   const [newAppointment, setNewAppointment] = useState({
@@ -727,6 +734,11 @@ export default function AdminDashboardPage() {
     }
   }, [token, fetchDashboardMetrics, fetchPatients, fetchAppointments, fetchLeads, fetchStaff, fetchPharmacy]);
 
+  // Leaving the registry always returns to the list, not a stale patient chart.
+  useEffect(() => {
+    if (activeModule !== 'patients') setSelectedPatientId(null);
+  }, [activeModule]);
+
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour < 12) {
@@ -768,37 +780,36 @@ export default function AdminDashboardPage() {
           county: newPatient.county,
           residentialAddress: 'Ruiru, Kiambu',
           dateOfBirth: '1995-01-01',
+          guardianName: newPatient.guardianName || undefined,
+          guardianPhone: newPatient.guardianPhone || undefined,
+          guardianWhatsApp: newPatient.guardianWhatsApp || undefined,
+          guardianEmail: newPatient.guardianEmail || undefined,
         }),
       });
-      if (res.ok) {
-        const created = await res.json();
-        setActiveModal(null);
-        setNewPatient({ firstName: '', lastName: '', gender: 'MALE', phone: '', county: 'Kiambu', substance: 'Alcohol' });
-        alert(`Patient ${created.firstName} ${created.lastName} registered successfully with CAL-ID ${created.calyviaId || created.id}`);
-        fetchPatients();
-        fetchDashboardMetrics();
-        return;
+      const created = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(created.message || `Patient registration failed (${res.status}).`);
       }
-    } catch (err) {
-      console.warn('Backend patient registration error:', err);
+
+      const notifications = Array.isArray(created.welcomeNotifications)
+        ? created.welcomeNotifications
+        : [];
+      const welcomeSummary = notifications.length
+        ? notifications.map((n: any) => `${n.channel}: ${n.status}`).join(', ')
+        : 'no guardian numbers supplied';
+      setActiveModal(null);
+      setNewPatient(emptyPatientForm);
+      alert(
+        `Patient ${created.firstName} ${created.lastName} registered with CAL-ID ${
+          created.registrationNumber || created.calyviaId || created.id
+        }. Welcome messages — ${welcomeSummary}.`,
+      );
+      fetchPatients();
+      fetchDashboardMetrics();
+      if (created.id) setSelectedPatientId(created.id);
+    } catch (err: any) {
+      alert(`Could not register patient: ${err?.message || 'Network error'}`);
     }
-
-    const created = {
-      id: `CAL-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      name: `${newPatient.firstName} ${newPatient.lastName}`,
-      gender: newPatient.gender === 'MALE' ? 'Male' : 'Female',
-      age: 30,
-      phone: newPatient.phone || '+254700000000',
-      county: newPatient.county,
-      status: 'ENQUIRY',
-      ward: 'Unassigned',
-      doctor: 'Triage Front Desk',
-    };
-
-    setPatients((prev) => [created, ...prev]);
-    setActiveModal(null);
-    setNewPatient({ firstName: '', lastName: '', gender: 'MALE', phone: '', county: 'Kiambu', substance: 'Alcohol' });
-    alert(`Patient ${created.name} registered successfully with CAL-ID ${created.id}`);
   };
 
   // Handle Book Appointment Form Submission
@@ -1521,8 +1532,16 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* Module: 01. Patient Registry */}
-          {activeModule === 'patients' && (
+          {/* Module: 01. Patient Registry / Patient Dashboard */}
+          {activeModule === 'patients' &&
+            (selectedPatientId ? (
+              <PatientDashboardView
+                token={token}
+                apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+                patientId={selectedPatientId}
+                onBack={() => setSelectedPatientId(null)}
+              />
+            ) : (
             <div className="space-y-6">
               <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1622,10 +1641,10 @@ export default function AdminDashboardPage() {
                             <td className="px-4 py-3 text-muted-foreground">{p.doctor}</td>
                             <td className="px-4 py-3">
                               <button
-                                onClick={() => setActiveModule('clinical')}
+                                onClick={() => setSelectedPatientId(p.id)}
                                 className="px-2.5 py-1 bg-surface border border-border rounded-lg text-[11px] font-semibold hover:bg-surface-elevated"
                               >
-                                View Chart
+                                View Dashboard
                               </button>
                             </td>
                           </tr>
@@ -1636,7 +1655,7 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
-          )}
+            ))}
 
           {/* Module: 02. CRM & Admissions Pipeline */}
           {activeModule === 'crm' && (
@@ -2965,6 +2984,58 @@ export default function AdminDashboardPage() {
                     value={newPatient.county}
                     onChange={(e) => setNewPatient({ ...newPatient, county: e.target.value })}
                     className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-border space-y-3">
+                <div className="flex items-center space-x-2 text-foreground font-semibold">
+                  <UserPlus className="w-4 h-4 text-primary" />
+                  <span>Parent / Guardian</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground -mt-2">
+                  A welcome message is sent to the guardian on SMS and WhatsApp using the numbers below.
+                </p>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Guardian Full Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Mary Wanjiku"
+                    value={newPatient.guardianName}
+                    onChange={(e) => setNewPatient({ ...newPatient, guardianName: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-foreground font-semibold mb-1">Phone (welcome SMS)</label>
+                    <input
+                      type="text"
+                      placeholder="+2547XXXXXXXX"
+                      value={newPatient.guardianPhone}
+                      onChange={(e) => setNewPatient({ ...newPatient, guardianPhone: e.target.value })}
+                      className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-foreground font-semibold mb-1">WhatsApp Number</label>
+                    <input
+                      type="text"
+                      placeholder="+2547XXXXXXXX"
+                      value={newPatient.guardianWhatsApp}
+                      onChange={(e) => setNewPatient({ ...newPatient, guardianWhatsApp: e.target.value })}
+                      className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary font-mono"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Guardian Email (optional)</label>
+                  <input
+                    type="email"
+                    placeholder="guardian@example.co.ke"
+                    value={newPatient.guardianEmail}
+                    onChange={(e) => setNewPatient({ ...newPatient, guardianEmail: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
                   />
                 </div>
               </div>

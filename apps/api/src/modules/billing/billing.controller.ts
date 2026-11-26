@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
@@ -14,6 +14,18 @@ import { AuditLog } from '../../common/decorators/audit-log.decorator';
 import { UserRole } from '@calyvia/shared';
 
 const BILLING_ROLES = [UserRole.SUPER_ADMIN, UserRole.FINANCE_BILLING, UserRole.FACILITY_ADMIN];
+
+/** Read-only invoice access for the patient dashboard's clinical viewers. */
+const INVOICE_READ_ROLES = [
+  ...BILLING_ROLES,
+  UserRole.MEDICAL_DIRECTOR,
+  UserRole.DOCTOR_PSYCHIATRIST,
+  UserRole.NURSE,
+  UserRole.COUNSELLOR,
+  UserRole.PHARMACIST,
+  UserRole.ADMISSIONS_FRONT_DESK,
+  UserRole.MANAGEMENT_EXECUTIVE,
+];
 
 @ApiTags('07. Billing, Invoicing & Payments')
 @Controller('billing')
@@ -88,10 +100,10 @@ export class BillingController {
   }
 
   @Get('invoices')
-  @Roles(...BILLING_ROLES)
-  @ApiOperation({ summary: 'List invoices with manual bill-to details' })
-  async getInvoices() {
-    return this.billingService.getInvoices();
+  @Roles(...INVOICE_READ_ROLES)
+  @ApiOperation({ summary: 'List invoices with manual bill-to details, optionally for one patient' })
+  async getInvoices(@Query('patientId') patientId?: string) {
+    return this.billingService.getInvoices(patientId);
   }
 
   @Get('payments')
