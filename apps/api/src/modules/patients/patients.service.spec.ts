@@ -34,6 +34,9 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
           Promise.resolve({ id: 'guardian-1', ...args.data }),
         ),
       },
+      user: {
+        findMany: jest.fn().mockResolvedValue([{ phone: '0799000001' }]),
+      },
       client: {
         storage: {
           from: jest.fn().mockReturnValue({
@@ -91,7 +94,11 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
         isPrimaryGuarantor: true,
       }),
     });
-    expect(communication.sendMessage).toHaveBeenCalledTimes(2);
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { role: { in: expect.arrayContaining(['SUPER_ADMIN', 'FACILITY_ADMIN']) }, isActive: true },
+      take: 10,
+    });
+    expect(communication.sendMessage).toHaveBeenCalledTimes(4);
     expect(communication.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: CommunicationChannel.SMS,
@@ -107,16 +114,35 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
         recipient: '+254723456789',
       }),
     );
+    expect(communication.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: CommunicationChannel.SMS,
+        recipient: '+254799000001',
+        templateKey: 'ADMIN_NEW_PATIENT',
+        recipientType: 'STAFF',
+      }),
+    );
+    expect(communication.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: CommunicationChannel.WHATSAPP,
+        recipient: '+254799000001',
+        templateKey: 'ADMIN_NEW_PATIENT',
+      }),
+    );
+    expect(created.welcomeNotifications).toHaveLength(4);
     expect(created.welcomeNotifications).toEqual([
-      expect.objectContaining({ channel: 'SMS', status: 'SENT' }),
-      expect.objectContaining({ channel: 'WHATSAPP', status: 'SENT' }),
+      expect.objectContaining({ audience: 'GUARDIAN', channel: 'SMS', status: 'SENT' }),
+      expect.objectContaining({ audience: 'GUARDIAN', channel: 'WHATSAPP', status: 'SENT' }),
+      expect.objectContaining({ audience: 'ADMIN', channel: 'SMS', status: 'SENT' }),
+      expect.objectContaining({ audience: 'ADMIN', channel: 'WHATSAPP', status: 'SENT' }),
     ]);
   });
 
   it('does not fail registration when a gateway rejects a welcome message', async () => {
     communication.sendMessage
       .mockResolvedValueOnce({ status: 'SENT' })
-      .mockRejectedValueOnce(new Error('WhatSocket not connected'));
+      .mockRejectedValueOnce(new Error('WhatSocket not connected'))
+      .mockResolvedValue({ status: 'SENT' });
 
     const created = await service.create({
       ...baseDto,
@@ -131,11 +157,28 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
     );
   });
 
-  it('skips guardian writes and messages when no guardian details are supplied', async () => {
-    await service.create(baseDto);
+  it('skips guardian writes/messages but still alerts administrators', async () => {
+    const created = await service.create(baseDto);
 
     expect(prisma.emergencyContact.create).not.toHaveBeenCalled();
-    expect(communication.sendMessage).not.toHaveBeenCalled();
+    expect(created.welcomeNotifications).toEqual([
+      expect.objectContaining({ audience: 'ADMIN', channel: 'SMS' }),
+      expect.objectContaining({ audience: 'ADMIN', channel: 'WHATSAPP' }),
+    ]);
+    expect(communication.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a failed administrator notification without failing registration', async () => {
+    // No guardian supplied: the two calls are admin SMS + admin WhatsApp.
+    communication.sendMessage
+      .mockResolvedValueOnce({ status: 'SENT' })
+      .mockRejectedValueOnce(new Error('Baileys offline'));
+
+    const created = await service.create(baseDto);
+
+    expect(created.welcomeNotifications?.[1]).toEqual(
+      expect.objectContaining({ audience: 'ADMIN', channel: 'WHATSAPP', status: 'FAILED' }),
+    );
   });
 
   it('rejects unsupported photo formats and oversized images', async () => {

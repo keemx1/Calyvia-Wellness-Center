@@ -12,13 +12,20 @@ import {
   UpdatePatientDto,
   UploadPatientPhotoDto,
 } from './dto/patient.dto';
-import { CommunicationChannel, KenyaUtils, PatientStatus } from '@calyvia/shared';
+import {
+  CommunicationChannel,
+  KenyaUtils,
+  PatientStatus,
+  UserRole,
+} from '@calyvia/shared';
 
 /** Kept in step with SystemAdminService.getFacilityConfig(). */
 const FACILITY_NAME = 'Calyvia Wellness Center';
 const FACILITY_PHONE = '+254700534306';
 const PHOTO_BUCKET = 'patient-documents';
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const ADMIN_NOTIFY_ROLES = [UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN, UserRole.MEDICAL_DIRECTOR];
+const MAX_ADMIN_RECIPIENTS = 3;
 
 @Injectable()
 export class PatientsService {
@@ -86,12 +93,13 @@ export class PatientsService {
         // GUARDIAN relationship — no schema migration is required, and the
         // patient dashboard already receives this row via findOne().
         const guardian = await this.saveGuardian(patient.id, dto);
-        const welcomeNotifications = await this.sendGuardianWelcome(patient, dto);
+        const guardianMessages = await this.sendGuardianWelcome(patient, dto);
+        const adminMessages = await this.sendAdministratorNotification(patient, dto);
 
         return {
           ...this.sanitizePatient(patient),
           guardian,
-          welcomeNotifications,
+          welcomeNotifications: [...guardianMessages, ...adminMessages],
         };
       }
       throw new Error('Database connection unavailable');
@@ -159,6 +167,7 @@ export class PatientsService {
           variables,
         });
         results.push({
+          audience: 'GUARDIAN',
           channel: call.channel,
           recipient: call.recipient,
           status: sent?.status || 'SENT',
@@ -168,11 +177,87 @@ export class PatientsService {
         const message = err?.message || 'Gateway error';
         this.logger.warn(`Guardian welcome ${call.channel} failed for ${call.recipient}: ${message}`);
         results.push({
+          audience: 'GUARDIAN',
           channel: call.channel,
           recipient: call.recipient,
           status: 'FAILED',
           error: message,
         });
+      }
+    }
+    return results;
+  }
+
+  /** Active facility administrators with a usable phone number. */
+  private async administratorRecipients(): Promise<string[]> {
+    try {
+      if (!this.prisma?.user?.findMany) return [];
+      const users = await this.prisma.user.findMany({
+        where: { role: { in: ADMIN_NOTIFY_ROLES }, isActive: true },
+        take: 10,
+      });
+      const unique = new Set<string>();
+      for (const user of users ?? []) {
+        const phone = this.normalizePhone(user.phone);
+        if (/^\+\d{9,15}$/.test(phone)) unique.add(phone);
+        if (unique.size >= MAX_ADMIN_RECIPIENTS) break;
+      }
+      if (!unique.size) {
+        this.logger.warn('No administrator phone numbers found; new-patient alerts were not sent.');
+      }
+      return [...unique];
+    } catch (err: any) {
+      this.logger.warn(`Administrator lookup failed: ${err?.message || err}`);
+      return [];
+    }
+  }
+
+  /** Every new registration is reported to administrators on SMS and WhatsApp. */
+  private async sendAdministratorNotification(patient: any, dto: CreatePatientDto) {
+    const recipients = await this.administratorRecipients();
+    if (!recipients.length || !this.communication?.sendMessage) return [];
+
+    const variables = {
+      patient_name: patient.firstName || 'a new client',
+      guardian_name: String(dto.guardianName || '').trim() || 'Not provided',
+      facility: FACILITY_NAME,
+      phone: FACILITY_PHONE,
+      date: new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      }),
+    };
+
+    const results: any[] = [];
+    for (const recipient of recipients) {
+      for (const channel of [CommunicationChannel.SMS, CommunicationChannel.WHATSAPP]) {
+        try {
+          const sent = await this.communication.sendMessage({
+            recipient,
+            channel,
+            recipientType: 'STAFF',
+            templateKey: 'ADMIN_NEW_PATIENT',
+            variables,
+          });
+          results.push({
+            audience: 'ADMIN',
+            channel,
+            recipient,
+            status: sent?.status || 'SENT',
+            provider: sent?.provider || null,
+          });
+        } catch (err: any) {
+          const message = err?.message || 'Gateway error';
+          this.logger.warn(`Admin notification ${channel} failed for ${recipient}: ${message}`);
+          results.push({
+            audience: 'ADMIN',
+            channel,
+            recipient,
+            status: 'FAILED',
+            error: message,
+          });
+        }
       }
     }
     return results;

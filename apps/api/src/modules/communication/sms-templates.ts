@@ -72,6 +72,15 @@ export const DEFAULT_SMS_TEMPLATES: SmsTemplate[] = [
     enabled: true,
   },
   {
+    key: 'ADMIN_NEW_PATIENT',
+    label: 'Administrator new-patient alert',
+    category: 'GENERAL',
+    description: 'Sent to facility administrators when a new client is registered.',
+    body: 'New patient registered at {{facility}}: {{patient_name}}. Guardian: {{guardian_name}}. Our facility contact is {{phone}}. Registered {{date}}. Please review the record and prepare next steps.',
+    variables: ['patient_name', 'guardian_name', 'facility', 'phone', 'date'],
+    enabled: true,
+  },
+  {
     key: 'ADMISSION_CONFIRMATION',
     label: 'Admission confirmed',
     category: 'ADMISSION',

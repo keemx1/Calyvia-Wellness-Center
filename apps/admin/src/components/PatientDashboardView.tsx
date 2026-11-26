@@ -18,6 +18,7 @@ import {
   Upload,
   UserRound,
   UsersRound,
+  X,
 } from 'lucide-react';
 
 interface PatientDashboardViewProps {
@@ -25,6 +26,8 @@ interface PatientDashboardViewProps {
   apiUrl: string;
   patientId: string;
   onBack: () => void;
+  onInvoiceCreated?: () => void;
+  canCreateInvoice?: boolean;
 }
 
 type Tab = 'overview' | 'billing' | 'medication' | 'photos';
@@ -63,6 +66,8 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
   apiUrl,
   patientId,
   onBack,
+  onInvoiceCreated,
+  canCreateInvoice = true,
 }) => {
   const [tab, setTab] = useState<Tab>('overview');
   const [patient, setPatient] = useState<any>(null);
@@ -71,6 +76,16 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
   const [photos, setPhotos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceBusy, setInvoiceBusy] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    description: '',
+    quantity: '1',
+    unitPriceKES: '',
+    dueDate: '',
+    discount: '0',
+    notes: '',
+  });
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token || ''}` }), [token]);
@@ -176,6 +191,46 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
       URL.revokeObjectURL(url);
     } catch (err: any) {
       setNotice({ type: 'error', text: err?.message || 'Could not download the invoice PDF.' });
+    }
+  };
+
+  const handleCreateInvoice = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setInvoiceBusy(true);
+    setNotice(null);
+    try {
+      const created = await request('/billing/invoices', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId,
+          billToName: name,
+          billToPhone:
+            pick(guardian, 'phone') || pick(guardian, 'alternativePhone') || pick(patient, 'phone') || undefined,
+          items: [
+            {
+              description: invoiceForm.description.trim() || 'Treatment service',
+              quantity: Number(invoiceForm.quantity) || 1,
+              unitPriceKES: Number(invoiceForm.unitPriceKES) || 0,
+            },
+          ],
+          dueDate: invoiceForm.dueDate || undefined,
+          discount: Number(invoiceForm.discount) || 0,
+          notes: invoiceForm.notes || undefined,
+        }),
+      } as RequestInit);
+      setInvoiceOpen(false);
+      setInvoiceForm({ description: '', quantity: '1', unitPriceKES: '', dueDate: '', discount: '0', notes: '' });
+      setNotice({
+        type: 'success',
+        text: `Invoice ${pick(created, 'invoiceNumber', 'invoice_number') || 'created'} added to the billing section.`,
+      });
+      await load();
+      onInvoiceCreated?.();
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Could not create the invoice.' });
+    } finally {
+      setInvoiceBusy(false);
     }
   };
 
@@ -391,10 +446,109 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
 
           {tab === 'billing' && (
             <div className="bg-card border border-border rounded-2xl shadow-card overflow-hidden">
-              <div className="p-5 border-b border-border flex items-center justify-between">
-                <h3 className="font-serif text-base font-bold text-foreground">Invoices & Payments</h3>
-                <span className="text-[11px] text-muted-foreground">{invoices.length} invoice(s)</span>
+              <div className="p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-serif text-base font-bold text-foreground">Invoices & Payments</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {invoices.length} invoice(s) linked to this patient
+                  </p>
+                </div>
+                {canCreateInvoice && (
+                  <button
+                    onClick={() => setInvoiceOpen((open) => !open)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
+                  >
+                    {invoiceOpen ? <X className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                    {invoiceOpen ? 'Close form' : 'New invoice'}
+                  </button>
+                )}
               </div>
+
+              {invoiceOpen && (
+                <form onSubmit={handleCreateInvoice} className="p-5 border-b border-border bg-surface-subtle space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Description</span>
+                      <input
+                        required
+                        value={invoiceForm.description}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                        placeholder="e.g. 30-day rehabilitation programme"
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Bill to</span>
+                      <input
+                        readOnly
+                        value={name}
+                        className="w-full bg-surface-elevated border border-border rounded-xl p-2.5 text-xs text-muted-foreground"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Quantity</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={invoiceForm.quantity}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, quantity: e.target.value })}
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Unit price (KES)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={invoiceForm.unitPriceKES}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, unitPriceKES: e.target.value })}
+                        placeholder="45000"
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Due date</span>
+                      <input
+                        type="date"
+                        value={invoiceForm.dueDate}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">Discount (KES)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={invoiceForm.discount}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, discount: e.target.value })}
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                  </div>
+                  <label className="block text-xs">
+                    <span className="block font-semibold text-foreground mb-1.5">Notes (optional)</span>
+                    <input
+                      value={invoiceForm.notes}
+                      onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
+                      placeholder="Payment arrangement, programme details…"
+                      className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={invoiceBusy}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-60"
+                    >
+                      {invoiceBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                      {invoiceBusy ? 'Creating…' : 'Create invoice'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
               {invoices.length === 0 ? (
                 <p className="p-10 text-center text-xs text-muted-foreground">No invoices for this patient yet.</p>
               ) : (

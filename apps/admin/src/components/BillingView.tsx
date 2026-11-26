@@ -21,6 +21,8 @@ import {
 interface BillingViewProps {
   token: string | null;
   apiUrl: string;
+  /** Incremented by other views (e.g. patient dashboard) after creating an invoice. */
+  refreshKey?: number;
 }
 
 type Tab = 'invoices' | 'create' | 'payments';
@@ -63,7 +65,7 @@ async function errorMessage(res: Response, fallback: string) {
   return body?.message || fallback;
 }
 
-export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl }) => {
+export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refreshKey = 0 }) => {
   const [tab, setTab] = useState<Tab>('invoices');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -122,7 +124,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl }) => {
 
   useEffect(() => {
     fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, refreshKey]);
 
   const totals = useMemo(() => {
     const total = invoices.reduce(

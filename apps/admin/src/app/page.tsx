@@ -185,6 +185,7 @@ export default function AdminDashboardPage() {
   const [patientStatusFilter, setPatientStatusFilter] = useState<string>('ALL');
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [billingRefreshKey, setBillingRefreshKey] = useState(0);
 
   // Admin-Controlled Staff Account Management State
   const [staffAccounts, setStaffAccounts] = useState<Array<any>>([]);
@@ -795,8 +796,10 @@ export default function AdminDashboardPage() {
         ? created.welcomeNotifications
         : [];
       const welcomeSummary = notifications.length
-        ? notifications.map((n: any) => `${n.channel}: ${n.status}`).join(', ')
-        : 'no guardian numbers supplied';
+        ? notifications
+            .map((n: any) => `${n.audience || 'GUARDIAN'} ${n.channel}: ${n.status}`)
+            .join(', ')
+        : 'no recipient numbers available';
       setActiveModal(null);
       setNewPatient(emptyPatientForm);
       alert(
@@ -1540,6 +1543,11 @@ export default function AdminDashboardPage() {
                 apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
                 patientId={selectedPatientId}
                 onBack={() => setSelectedPatientId(null)}
+                onInvoiceCreated={() => setBillingRefreshKey((key) => key + 1)}
+                canCreateInvoice={Boolean(
+                  user &&
+                    ['SUPER_ADMIN', 'FACILITY_ADMIN', 'FINANCE_BILLING'].includes(String(user.role)),
+                )}
               />
             ) : (
             <div className="space-y-6">
@@ -2377,6 +2385,7 @@ export default function AdminDashboardPage() {
             <BillingView
               token={token}
               apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+              refreshKey={billingRefreshKey}
             />
           )}
 
