@@ -62,7 +62,7 @@ describe('ByteWaveSmsProvider (HTTP + OAuth2)', () => {
     expect(splitCombinedKey('')).toBeNull();
   });
 
-  it('sends via HTTP GET to .../api/http/send with key, sender, recipients, message', async () => {
+  it('sends via HTTP GET to .../api/http/sms/send with api_token, sender_id, recipient, message', async () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
       ok: true,
       status: 200,
@@ -87,10 +87,13 @@ describe('ByteWaveSmsProvider (HTTP + OAuth2)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0] as any[];
     const u = new URL(url);
-    expect(`${u.origin}${u.pathname}`).toBe('https://portal.bytewavenetworks.com/api/http/send');
-    expect(u.searchParams.get('apiKey')).toBe('http-key-123');
+    expect(`${u.origin}${u.pathname}`).toBe(
+      'https://portal.bytewavenetworks.com/api/http/sms/send',
+    );
+    expect(u.searchParams.get('api_token')).toBe('http-key-123');
+    expect(u.searchParams.get('sender_id')).toBe('CALYVIA');
     expect(u.searchParams.get('sender')).toBe('CALYVIA');
-    expect(u.searchParams.get('recipients')).toBe('254712345678');
+    expect(u.searchParams.get('recipient')).toBe('254712345678');
     expect(u.searchParams.get('message')).toBe('Hello via HTTP');
     expect(init.method).toBe('GET');
   });

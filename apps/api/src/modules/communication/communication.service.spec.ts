@@ -389,9 +389,9 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0] as any[];
       const parsedUrl = new URL(String(url));
-      expect(parsedUrl.pathname).toBe('/api/http/send');
-      expect(parsedUrl.searchParams.get('apiKey')).toBe('db-stored-key');
-      expect(parsedUrl.searchParams.get('recipients')).toBe('254712345678');
+      expect(parsedUrl.pathname).toBe('/api/http/sms/send');
+      expect(parsedUrl.searchParams.get('api_token')).toBe('db-stored-key');
+      expect(parsedUrl.searchParams.get('recipient')).toBe('254712345678');
       expect(parsedUrl.searchParams.get('sender')).toBe('CALYVIA');
       expect((init as any).method).toBe('GET');
 
@@ -510,9 +510,9 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const url = new URL(String(fetchSpy.mock.calls[0][0]));
-      expect(url.pathname).toBe('/api/http/send');
-      expect(url.searchParams.get('apiKey')).toBe('saved-test-key');
-      expect(url.searchParams.get('recipients')).toBe('254703377395');
+      expect(url.pathname).toBe('/api/http/sms/send');
+      expect(url.searchParams.get('api_token')).toBe('saved-test-key');
+      expect(url.searchParams.get('recipient')).toBe('254703377395');
       // Secrets are never echoed back to the caller.
       expect(JSON.stringify(result)).not.toContain('saved-test-key');
     });

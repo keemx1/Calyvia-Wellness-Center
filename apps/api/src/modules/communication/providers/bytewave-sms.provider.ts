@@ -20,10 +20,10 @@ import { ConfigResolver } from './config-resolver';
  *   gateway.sms.bytewave.client_id     BYTEWAVE_CLIENT_ID      (oauth2; or parsed from api_key)
  *   gateway.sms.bytewave.client_secret BYTEWAVE_CLIENT_SECRET  (oauth2, encrypted; or parsed from api_key)
  *   gateway.sms.bytewave.sender_id     BYTEWAVE_SENDER_ID      CALYVIA
- *   -                                  BYTEWAVE_KEY_PARAM       apiKey (http query param for the key)
- *   -                                  BYTEWAVE_PARAM_TO        recipients
+ *   -                                  BYTEWAVE_KEY_PARAM       api_token (http query param for the key)
+ *   -                                  BYTEWAVE_PARAM_TO        recipient
  *   -                                  BYTEWAVE_PARAM_MESSAGE   message
- *   -                                  BYTEWAVE_PARAM_SENDER    sender
+ *   -                                  BYTEWAVE_PARAM_SENDER    sender_id
  *   -                                  BYTEWAVE_ID_FIELD        id
  *
  * OAuth key convenience: when mode is oauth2 and client id/secret are not set
@@ -147,10 +147,12 @@ export class ByteWaveSmsProvider implements SmsProvider {
         await this.config.get('BYTEWAVE_SENDER_ID', 'gateway.sms.bytewave.sender_id'),
         'CALYVIA',
       ),
-      keyParam: pick(process.env.BYTEWAVE_KEY_PARAM, 'apiKey'),
-      paramTo: pick(process.env.BYTEWAVE_PARAM_TO, 'recipients'),
+      // Verified against the live portal: /api/http/sms/send requires
+      // recipient, message and api_token. The portal also accepts sender_id.
+      keyParam: pick(process.env.BYTEWAVE_KEY_PARAM, 'api_token'),
+      paramTo: pick(process.env.BYTEWAVE_PARAM_TO, 'recipient'),
       paramMessage: pick(process.env.BYTEWAVE_PARAM_MESSAGE, 'message'),
-      paramSender: pick(process.env.BYTEWAVE_PARAM_SENDER, 'sender'),
+      paramSender: pick(process.env.BYTEWAVE_PARAM_SENDER, 'sender_id'),
       idField: pick(process.env.BYTEWAVE_ID_FIELD, 'id'),
     };
   }
@@ -163,9 +165,11 @@ export class ByteWaveSmsProvider implements SmsProvider {
   // ---------------------------------------------------------------- HTTP API --
 
   private httpSendUrl(base: string): string {
-    // The portal lists the base (.../api/http/). The send action lives under it.
-    if (/\/send\/?(\?.*)?$/i.test(base)) return base;
-    return joinUrl(base, 'send');
+    // Verified against the live portal: the HTTP send route is .../api/http/sms/send.
+    // (An earlier build appended /send and ByteWave replied "route could not be found".)
+    if (/\/sms\/send\/?(\?.*)?$/i.test(base)) return base;
+    if (/\/send\/?(\?.*)?$/i.test(base)) return base.replace(/\/send\/?(\?.*)?$/i, '/sms/send$1');
+    return joinUrl(base, 'sms/send');
   }
 
   private async sendViaHttp(cfg: ByteWaveConfig, input: SmsSendInput): Promise<SmsSendResult> {
@@ -177,6 +181,10 @@ export class ByteWaveSmsProvider implements SmsProvider {
     const url = new URL(this.httpSendUrl(cfg.apiUrl));
     url.searchParams.set(cfg.keyParam, cfg.apiKey);
     url.searchParams.set(cfg.paramSender, sender);
+    // Some ByteWave accounts expect `sender` while others use `sender_id`.
+    // Sending both is harmless and avoids a provider-side validation failure.
+    if (cfg.paramSender !== 'sender') url.searchParams.set('sender', sender);
+    if (cfg.paramSender !== 'sender_id') url.searchParams.set('sender_id', sender);
     url.searchParams.set(cfg.paramTo, msisdn);
     url.searchParams.set(cfg.paramMessage, input.body);
 
@@ -250,6 +258,13 @@ export class ByteWaveSmsProvider implements SmsProvider {
       } catch (err: any) {
         lastError = `token endpoint ${attempt.url} failed: ${err?.message || err}`;
       }
+    }
+    // The live v3 API exposes no public token endpoint; some accounts are issued
+    // an `oc_sk_...` value that IS the bearer token. Use it directly as a fallback.
+    if (/^oc_sk_/i.test(cfg.apiKey.trim())) {
+      this.oauthToken = cfg.apiKey.trim();
+      this.oauthExpiresAt = Date.now() + 3_600_000;
+      return this.oauthToken;
     }
     throw new Error(`ByteWave OAuth2 login failed. ${lastError}`);
   }
