@@ -85,6 +85,17 @@ export class CommunicationController {
     return this.communicationService.getWhatsAppDiagnostics();
   }
 
+  @Post('whatsapp/reset')
+  @Roles(UserRole.SUPER_ADMIN)
+  @AuditLog({ action: 'RESET_WHATSAPP_SESSION', resource: 'SYSTEM_SETTING' })
+  @ApiOperation({
+    summary: 'Clear a stale Baileys session and request a fresh QR/pairing handshake',
+    description: 'SUPER_ADMIN only. Deletes the contents of BAILEYS_AUTH_DIR.',
+  })
+  async resetWhatsApp() {
+    return this.communicationService.resetWhatsAppSession();
+  }
+
   @Post('whatsapp/pair')
   @ApiOperation({
     summary: 'Request a WhatsApp pairing code for a phone number (no QR scan needed)',

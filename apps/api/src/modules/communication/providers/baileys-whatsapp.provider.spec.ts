@@ -1,4 +1,11 @@
-import { BaileysWhatsAppGateway } from './baileys-whatsapp.provider';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import {
+  BaileysWhatsAppGateway,
+  WHATSAPP_HOST,
+  WHATSAPP_WS_URL,
+} from './baileys-whatsapp.provider';
 
 function makeGateway() {
   const gw = new BaileysWhatsAppGateway();
@@ -157,11 +164,69 @@ describe('BaileysWhatsAppGateway', () => {
       lastDisconnect: { error: { message: 'Connection Terminated', output: { statusCode: 428 } } },
     });
 
-    await expect(waiting).rejects.toThrow(/code=428.*WebSocket access/s);
+    await expect(waiting).rejects.toThrow(/code=428.*web\.whatsapp\.com\/ws\/chat/s);
     expect(gw.getStatus()).toMatchObject({
       status: 'disconnected',
       lastDisconnect: { statusCode: 428, message: 'Connection Terminated' },
       qr: null,
     });
+  });
+
+  it('gives Baileys a child logger that still implements trace()', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'calyvia-wa-logger-'));
+    const previous = process.env.BAILEYS_AUTH_DIR;
+    process.env.BAILEYS_AUTH_DIR = dir;
+    let captured: any;
+    const gw = new BaileysWhatsAppGateway();
+    (gw as any).baileys = {
+      useMultiFileAuthState: jest.fn(async () => ({ state: {}, saveCreds: jest.fn() })),
+      makeWASocket: jest.fn((opts: any) => {
+        captured = opts;
+        return { ev: { on: jest.fn() }, end: jest.fn() };
+      }),
+      Browsers: { ubuntu: (name: string) => ['Ubuntu', name, '22.04.4'] },
+      DisconnectReason: { loggedOut: 401 },
+    };
+    (gw as any).resolveVersion = jest.fn(async () => undefined);
+
+    try {
+      await gw.start();
+      expect(typeof captured.logger.trace).toBe('function');
+      expect(typeof captured.logger.child().trace).toBe('function');
+      expect(typeof captured.logger.child().error).toBe('function');
+      // `version: undefined` would override Baileys' bundled default and crash.
+      expect(Object.prototype.hasOwnProperty.call(captured, 'version')).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.BAILEYS_AUTH_DIR;
+      else process.env.BAILEYS_AUTH_DIR = previous;
+    }
+  });
+
+  it('probes the host Baileys actually dials (not the non-resolving .net host)', () => {
+    expect(WHATSAPP_HOST).toBe('web.whatsapp.com');
+    expect(WHATSAPP_WS_URL).toBe('wss://web.whatsapp.com/ws/chat');
+  });
+
+  it('reset clears the stale session files and opens a fresh handshake', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'calyvia-wa-'));
+    const previous = process.env.BAILEYS_AUTH_DIR;
+    process.env.BAILEYS_AUTH_DIR = dir;
+    fs.writeFileSync(path.join(dir, 'creds.json'), '{}');
+
+    const gw = new BaileysWhatsAppGateway();
+    (gw as any).start = jest.fn(async () => {});
+    (gw as any).sock = { ev: { removeAllListeners: jest.fn() }, end: jest.fn() };
+
+    try {
+      await gw.resetSession();
+      expect(fs.existsSync(path.join(dir, 'creds.json'))).toBe(false);
+      expect(fs.existsSync(dir)).toBe(true);
+      expect((gw as any).start).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.BAILEYS_AUTH_DIR;
+      else process.env.BAILEYS_AUTH_DIR = previous;
+    }
   });
 });

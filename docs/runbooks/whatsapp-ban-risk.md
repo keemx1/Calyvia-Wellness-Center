@@ -80,13 +80,15 @@ secret** — it is the identity of the linked account (see §5).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `status: "disconnected"` then reconnects | Transient network drop | Expected; auto-reconnects after 5s |
+| `status: "disconnected"` then reconnects | Transient network drop | Expected; auto-reconnects with backoff (5s → 10s → … → 5min) |
 | `status: "closed"` + "logged out" | WhatsApp revoked the session (ban or manual unlink) | Clear `BAILEYS_AUTH_DIR`, re-pair. If it repeats → likely a ban. |
 | Sends return `FAILED` with "not connected" | Socket not open | Check `/whatsapp/status`; pair if needed |
 | `Cannot find module '@whiskeysockets/baileys'` | Package not installed | `npm i @whiskeysockets/baileys@^6.7.24` |
 | QR never appears | Server started with a stale auth dir | Delete `BAILEYS_AUTH_DIR` contents and restart |
-| `lastDisconnect: { statusCode: 428, message: "Connection Terminated" }` in `/whatsapp/status` | The WebSocket was closed before a QR was issued. Baileys reports 428 for *any* raw socket close, so check `GET /communication/whatsapp/diagnostics`: `dns` = resolution, `https` = HTTPS egress, `websocket` = raw upgrade to `wss://web.whatsapp.net/ws`. If `websocket.error`/`closeCode` fails while `https` is fine, a proxy/firewall is blocking the upgrade. If all pass, repeated rapid pairing attempts may be temporarily throttled — the client now uses exponential reconnect backoff; stop retrying for a few hours. |
+| `lastDisconnect: { statusCode: 428, message: "Connection Terminated" }` in `/whatsapp/status` | The WebSocket was closed before a QR was issued. Baileys reports 428 for *any* raw socket close. Check `GET /communication/whatsapp/diagnostics`: `dns`, `https` and `websocket` are probed against **`web.whatsapp.com`** (Baileys dials `wss://web.whatsapp.com/ws/chat`; `web.whatsapp.net` does not resolve and was an earlier diagnostic bug). If `websocket.error`/`closeCode` fails while `dns`/`https` pass, a proxy/firewall is blocking the upgrade. `authFiles` shows whether a stale session is present. |
+| A stale session keeps closing with 428 | Credentials left by a failed pairing | In the admin UI use **Diagnostics**, then **Reset session** (SUPER_ADMIN only) — equivalent to `POST /communication/whatsapp/reset`. It clears `BAILEYS_AUTH_DIR` and starts a fresh QR handshake. |
 | Pair returns "did not reach pairing state" | Socket closed before a QR was issued | The error now includes the real close code/message. Fix that cause first — pairing codes cannot be requested on a dead socket. |
+| 428 with good DNS/HTTPS/WebSocket diagnostics | Application-side handshake bug | Fixed in code: Baileys needs `version` **omitted** (not `undefined`) to use its bundled revision, and `logger.child()` must return a logger with `trace()`. A local probe now produces a QR reliably. |
 
 ## 5. Security & privacy
 

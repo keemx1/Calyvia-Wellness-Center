@@ -207,6 +207,12 @@ export class CommunicationService implements OnModuleInit {
     return getBaileysGateway().diagnose();
   }
 
+  /** Clear a stale session and open a fresh pairing handshake. */
+  async resetWhatsAppSession() {
+    await getBaileysGateway().resetSession();
+    return getBaileysGateway().getStatus();
+  }
+
   /** Request a WhatsApp pairing code for a phone number (headless linking). */
   async requestWhatsAppPairing(phone: string) {
     const normalized = KenyaUtils.normalizePhoneNumber(phone);

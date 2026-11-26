@@ -12,6 +12,8 @@ import {
   KeyRound,
   ShieldAlert,
   Copy,
+  RotateCcw,
+  Activity,
 } from 'lucide-react';
 
 interface GatewaySettingsViewProps {
@@ -61,6 +63,9 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<any | null>(null);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -174,6 +179,46 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
     }
   };
 
+  const handleDiagnostics = async () => {
+    if (!token) return;
+    setDiagnosing(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`${apiUrl}/communication/whatsapp/diagnostics`, { headers: authHeaders });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'Diagnostics request failed.');
+      setDiagnostics(data);
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err?.message || 'Network error running diagnostics.' });
+    } finally {
+      setDiagnosing(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!token || !window.confirm('Clear the saved WhatsApp session and generate a new QR?')) return;
+    setResetting(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`${apiUrl}/communication/whatsapp/reset`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'Failed to reset the WhatsApp session.');
+      setMsg({
+        type: 'success',
+        text: 'Session cleared. A fresh connection is starting — refresh shortly for the new QR.',
+      });
+      setDiagnostics(null);
+      await fetchWhatsAppStatus();
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err?.message || 'Network error resetting the session.' });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const statusStyle = waStatus ? STATUS_STYLES[waStatus.status] ?? STATUS_STYLES.disconnected : null;
   const grouped = {
     SMS: settings.filter((s) => s.group === 'SMS'),
@@ -213,6 +258,23 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 {statusStyle.label}
               </span>
             )}
+            <button
+              onClick={handleDiagnostics}
+              disabled={diagnosing}
+              className="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-border text-foreground hover:bg-surface-subtle transition disabled:opacity-50"
+            >
+              {diagnosing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+              <span>Diagnostics</span>
+            </button>
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              title="SUPER_ADMIN only — clears the saved session"
+              className="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-amber-500/30 text-amber-700 hover:bg-amber-500/10 transition disabled:opacity-50"
+            >
+              {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+              <span>Reset session</span>
+            </button>
             <button
               onClick={fetchWhatsAppStatus}
               className="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-border text-foreground hover:bg-surface-subtle transition"
@@ -333,6 +395,35 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
             </div>
           </div>
         </div>
+
+        {diagnostics && (
+          <div className="rounded-xl border border-border bg-surface-subtle p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-foreground flex items-center space-x-1.5">
+                <Activity className="w-4 h-4 text-primary" />
+                <span>Connection diagnostics</span>
+              </h4>
+              <code className="text-[10px] text-muted-foreground">{diagnostics.target}</code>
+            </div>
+            <pre className="text-[10px] leading-relaxed text-foreground overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(
+                {
+                  dns: diagnostics.dns,
+                  https: diagnostics.https,
+                  websocket: diagnostics.websocket,
+                  authFiles: diagnostics.authFiles,
+                  proxyEnv: diagnostics.proxyEnv,
+                },
+                null,
+                2,
+              )}
+            </pre>
+            <p className="text-[10px] text-muted-foreground">
+              dns/https/websocket are probed from the API container. A failed websocket with fine
+              DNS/HTTPS means port 443 or the WebSocket upgrade is blocked.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ---------------- Gateway settings ---------------- */}

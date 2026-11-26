@@ -8,6 +8,10 @@ import {
   toWhatsAppJid,
 } from './whatsapp-provider';
 
+/** Baileys dials web.whatsapp.com — NOT web.whatsapp.net (which does not resolve). */
+export const WHATSAPP_HOST = 'web.whatsapp.com';
+export const WHATSAPP_WS_URL = `wss://${WHATSAPP_HOST}/ws/chat`;
+
 /**
  * WhatsApp via Baileys (https://github.com/WhiskeySockets/Baileys).
  *
@@ -148,24 +152,33 @@ export class BaileysWhatsAppGateway {
       ? this.baileys.Browsers.ubuntu('Calyvia')
       : undefined;
 
-    this.sock = this.baileys.makeWASocket({
+    // Baileys calls logger.child() and then uses trace/debug/info on the result.
+    // Returning the Nest logger here crashes the handshake (Nest has no trace()).
+    const baileysLogger: any = {
+      level: 'silent',
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: (msg: unknown) => this.logger.warn(String(msg)),
+      error: (msg: unknown) => this.logger.error(String(msg)),
+      fatal: (msg: unknown) => this.logger.error(String(msg)),
+      child: () => baileysLogger,
+    };
+
+    // Omit `version` entirely for the bundled default. Passing `version: undefined`
+    // overrides Baileys' default with undefined and its registration node crashes
+    // on `config.version.join('.')`.
+    const socketConfig: any = {
       auth: state,
-      version,
       browser,
       printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      // Quiet down Baileys' very chatty pino logger.
-      logger: {
-        level: 'silent',
-        trace: () => {},
-        debug: () => {},
-        info: () => {},
-        warn: (msg: unknown) => this.logger.warn(String(msg)),
-        error: (msg: unknown) => this.logger.error(String(msg)),
-        child: () => this.logger as any,
-      },
-    });
+      logger: baileysLogger,
+    };
+    if (version) socketConfig.version = version;
+
+    this.sock = this.baileys.makeWASocket(socketConfig);
 
     this.sock.ev.on('creds.update', this.saveCreds);
     this.sock.ev.on('connection.update', (update: any) => this.handleConnectionUpdate(update));
@@ -211,8 +224,8 @@ export class BaileysWhatsAppGateway {
       const hint =
         statusCode === 428
           ? ' The websocket was terminated during the handshake. Check outbound WebSocket access ' +
-            'to wss://web.whatsapp.net (proxy/firewall) and keep BAILEYS_USE_LATEST_VERSION unset ' +
-            'so the installed Baileys protocol revision is used.'
+            `to ${WHATSAPP_WS_URL} (proxy/firewall) via GET /communication/whatsapp/diagnostics. ` +
+            'BAILEYS_USE_LATEST_VERSION is unset, so the installed Baileys protocol revision is used.'
           : '';
       const closeError = new Error(`WhatsApp connection closed (code=${detail}).${hint}`);
 
@@ -254,9 +267,9 @@ export class BaileysWhatsAppGateway {
         reject(
           new Error(
             `WhatsApp socket did not reach pairing state within ${Math.round(ms / 1000)}s (${reason}). ` +
-              'Check outbound WebSocket access to wss://web.whatsapp.net (port 443) and that ' +
-              'BAILEYS_USE_LATEST_VERSION is not forcing a protocol revision newer than this ' +
-              'Baileys installation.',
+              `Check outbound WebSocket access to ${WHATSAPP_WS_URL} (port 443) with ` +
+              'GET /communication/whatsapp/diagnostics. If the socket closes before a QR every ' +
+              'time, reset the local session (POST /communication/whatsapp/reset) once.',
           ),
         );
       }, ms);
@@ -352,6 +365,55 @@ export class BaileysWhatsAppGateway {
   }
 
   /**
+   * Clear a stale/corrupt Baileys session and open a fresh handshake. Useful when
+   * WhatsApp closes every attempt before a QR — e.g. credentials left behind by a
+   * failed pairing. Only the configured session directory is removed.
+   */
+  async resetSession(): Promise<void> {
+    const resolved = path.resolve(this.authDir);
+    const root = path.parse(resolved).root;
+    if (resolved === root || resolved === process.cwd()) {
+      throw new Error(
+        'Refusing to clear a WhatsApp session directory equal to the filesystem or project root.',
+      );
+    }
+
+    // Let any in-flight start finish before we tear its socket down.
+    if (this.starting) {
+      try {
+        await this.starting;
+      } catch {
+        /* start already reported its failure */
+      }
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.sock) {
+      try {
+        this.sock.ev?.removeAllListeners?.();
+        this.sock.end?.(undefined);
+      } catch {
+        /* socket is already dead */
+      }
+      this.sock = null;
+    }
+
+    this.status = 'disconnected';
+    this.qr = null;
+    this.pairingCode = null;
+    this.lastDisconnect = null;
+    this.reconnectAttempts = 0;
+    this.rejectQrWaiters(new Error('WhatsApp session was reset; request pairing again.'));
+
+    fs.rmSync(resolved, { recursive: true, force: true });
+    fs.mkdirSync(resolved, { recursive: true });
+    this.logger.warn(`Cleared WhatsApp session directory ${resolved}; reconnecting.`);
+    await this.start();
+  }
+
+  /**
    * Network probe used when the socket keeps closing before a QR. It separates
    * "the VPS cannot reach WhatsApp" from "Baileys/WhatsApp rejected the client".
    * No credentials are involved and no session is created.
@@ -366,11 +428,18 @@ export class BaileysWhatsAppGateway {
         (k) => !!process.env[k],
       ),
       session: this.getStatus(),
+      target: WHATSAPP_WS_URL,
     };
 
     try {
+      out.authFiles = fs.readdirSync(this.authDir);
+    } catch (err: any) {
+      out.authFiles = { error: err?.message || String(err) };
+    }
+
+    try {
       const dns: any = await import('dns');
-      const addresses = await dns.promises.lookup('web.whatsapp.net', { all: true });
+      const addresses = await dns.promises.lookup(WHATSAPP_HOST, { all: true });
       out.dns = addresses.map((a: any) => ({ family: a.family, address: a.address }));
     } catch (err: any) {
       out.dns = { error: err?.message || String(err) };
@@ -380,7 +449,7 @@ export class BaileysWhatsAppGateway {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8_000);
       try {
-        const res = await fetch('https://web.whatsapp.net/', { signal: controller.signal });
+        const res = await fetch(`https://${WHATSAPP_HOST}/`, { signal: controller.signal });
         out.https = { status: res.status };
       } finally {
         clearTimeout(timer);
@@ -408,8 +477,8 @@ export class BaileysWhatsAppGateway {
           resolve(result);
         };
         const timer = setTimeout(() => finish({ error: 'no websocket open within 8s' }), 8_500);
-        const ws = new WebSocket('wss://web.whatsapp.net/ws', {
-          origin: 'https://web.whatsapp.com',
+        const ws = new WebSocket(WHATSAPP_WS_URL, {
+          origin: `https://${WHATSAPP_HOST}`,
           handshakeTimeout: 8_000,
         });
         ws.once('open', () => finish({ open: true }));
