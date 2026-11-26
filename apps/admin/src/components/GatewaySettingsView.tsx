@@ -622,12 +622,14 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                         Account balance
                       </p>
                       <p className="text-lg font-semibold text-foreground mt-0.5">
-                        {balance.balanceKes !== null && balance.balanceKes !== undefined
-                          ? `KES ${Number(balance.balanceKes).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}`
-                          : '—'}
+                        {balance.balanceKes !== null && balance.balanceKes !== undefined ? (
+                          `KES ${Number(balance.balanceKes).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`
+                        ) : (
+                          <span className="text-sm font-normal">Not reported by ByteWave</span>
+                        )}
                       </p>
                     </div>
                     <div className="rounded-lg border border-border bg-card p-3">
@@ -635,9 +637,11 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                         SMS available
                       </p>
                       <p className="text-lg font-semibold text-foreground mt-0.5">
-                        {balance.smsAvailable !== null && balance.smsAvailable !== undefined
-                          ? Number(balance.smsAvailable).toLocaleString()
-                          : '—'}
+                        {balance.smsAvailable !== null && balance.smsAvailable !== undefined ? (
+                          Number(balance.smsAvailable).toLocaleString()
+                        ) : (
+                          <span className="text-sm font-normal">Not reported by ByteWave</span>
+                        )}
                       </p>
                     </div>
                   </div>

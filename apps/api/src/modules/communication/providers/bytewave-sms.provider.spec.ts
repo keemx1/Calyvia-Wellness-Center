@@ -264,6 +264,40 @@ describe('ByteWaveSmsProvider (HTTP + OAuth2)', () => {
     });
   });
 
+  it('understands the live payload that uses data.remaining_balance', () => {
+    expect(
+      parseByteWaveBalance({
+        status: 'success',
+        message: null,
+        data: { remaining_balance: 'Ksh50.40', expired_on: '14th Oct 25, 12:13 PM' },
+      }),
+    ).toMatchObject({ balanceKes: 50.4, smsAvailable: null });
+  });
+
+  it('merges the secondary SMS-balance route without losing the wallet balance', async () => {
+    jest
+      .spyOn(globalThis, 'fetch' as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({ status: 'success', data: { remaining_balance: 'Ksh50.40' } }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ status: 'success', data: { sms_balance: '173' } }),
+      } as any);
+
+    const resolver = makeResolver({ 'gateway.sms.bytewave.api_key': 'bal-key' });
+    const result = await new ByteWaveSmsProvider(resolver).getBalance();
+
+    expect(parseByteWaveBalance(result.raw)).toMatchObject({
+      balanceKes: 50.4,
+      smsAvailable: 173,
+    });
+  });
+
   it('reads /api/http/balance with the saved api_token', async () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
       ok: true,

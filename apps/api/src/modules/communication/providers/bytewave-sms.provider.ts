@@ -87,6 +87,11 @@ export interface ByteWaveBalanceView {
 }
 
 const BALANCE_KEYS = [
+  // Confirmed from the live portal: data.remaining_balance = "Ksh50.40".
+  'remaining_balance',
+  'remainingbalance',
+  'balance_remaining',
+  'balanceremaining',
   'balance',
   'account_balance',
   'accountbalance',
@@ -112,6 +117,14 @@ const SMS_KEYS = [
   'remainingsms',
   'sms_count',
   'smscount',
+  'sms_remaining',
+  'smsremaining',
+  'available_sms',
+  'availablesms',
+  'sms_left',
+  'smsleft',
+  'sms_units',
+  'smsunits',
   'units',
 ];
 
@@ -277,6 +290,7 @@ export class ByteWaveSmsProvider implements SmsProvider {
     }
 
     let lastError = 'ByteWave did not return a balance.';
+    let merged: any = null;
     for (const attempt of attempts) {
       try {
         const res = await fetch(attempt.url, { headers: attempt.headers });
@@ -288,13 +302,33 @@ export class ByteWaveSmsProvider implements SmsProvider {
           parsed = { raw: text };
         }
         if (res.ok && parsed && parsed.status !== 'error' && !parsed.error) {
-          return { status: 'OK', raw: parsed };
+          // /balance reports wallet credit, /sms/balance may report the SMS unit
+          // count. Merge both `data` objects; the first successful route wins on
+          // conflicts so the primary balance is never overwritten.
+          if (!merged) {
+            merged = parsed;
+          } else if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const priorData = merged?.data;
+            const nextData = parsed.data;
+            merged = {
+              ...merged,
+              ...parsed,
+              ...(priorData &&
+              typeof priorData === 'object' &&
+              nextData &&
+              typeof nextData === 'object'
+                ? { data: { ...nextData, ...priorData } }
+                : {}),
+            };
+          }
+          continue;
         }
         lastError = `${attempt.url.split('?')[0]} -> ${text.slice(0, 160)}`;
       } catch (err: any) {
         lastError = `${attempt.url.split('?')[0]} failed: ${err?.message || err}`;
       }
     }
+    if (merged) return { status: 'OK', raw: merged };
     throw new Error(lastError);
   }
 
