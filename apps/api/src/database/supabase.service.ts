@@ -48,8 +48,9 @@ const MODEL_TABLE_MAP: Record<string, string> = {
   systemSetting: 'system_settings',
 };
 
-// Key transformation utilities
-function toSnake(str: string): string {
+// Key transformation utilities. `table` is supplied where a generic name means
+// different things (e.g. invoice_items.quantity vs inventory.current_stock).
+function toSnake(str: string, table?: string): string {
   // Common entity mappings
   if (str === 'registrationNumber') return 'upi';
   if (str === 'resource') return 'entity_name';
@@ -101,6 +102,9 @@ function toSnake(str: string): string {
 
   // Appointments
   if (str === 'staffMemberName') return 'staff_member_name';
+
+  // Billing line items keep their real `quantity` column; inventory uses `current_stock`.
+  if (table === 'invoice_items' && str === 'quantity') return 'quantity';
 
   // Inventory
   if (str === 'name') return 'item_name';
@@ -176,7 +180,7 @@ export class ModelRepository {
     let idx = 1;
     for (const [k, v] of Object.entries(args.data)) {
       if (v === undefined) continue;
-      const col = toSnake(k);
+      const col = toSnake(k, this.tableName);
       keys.push(`"${col}"`);
       values.push(v);
       placeholders.push(`$${idx++}`);
@@ -202,7 +206,7 @@ export class ModelRepository {
     if (args?.where) {
       for (const [k, v] of Object.entries(args.where)) {
         if (v === undefined) continue;
-        const col = toSnake(k);
+        const col = toSnake(k, this.tableName);
         if (v === null) {
           conditions.push(`"${col}" IS NULL`);
         } else if (typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date)) {
@@ -231,7 +235,7 @@ export class ModelRepository {
     if (args?.orderBy) {
       if (typeof args.orderBy === 'object' && !Array.isArray(args.orderBy)) {
         const orderClauses = Object.entries(args.orderBy).map(
-          ([col, dir]) => `"${toSnake(col)}" ${String(dir).toUpperCase()}`,
+          ([col, dir]) => `"${toSnake(col, this.tableName)}" ${String(dir).toUpperCase()}`,
         );
         sql += ` ORDER BY ${orderClauses.join(', ')}`;
       }
@@ -294,7 +298,7 @@ export class ModelRepository {
 
     for (const [k, v] of Object.entries(args.where)) {
       if (v === undefined) continue;
-      const col = toSnake(k);
+      const col = toSnake(k, this.tableName);
       conditions.push(`"${col}" = $${idx++}`);
       values.push(v);
     }
@@ -342,7 +346,7 @@ export class ModelRepository {
 
     for (const [k, v] of Object.entries(args.data)) {
       if (v === undefined) continue;
-      const col = toSnake(k);
+      const col = toSnake(k, this.tableName);
       setClauses.push(`"${col}" = $${idx++}`);
       values.push(v);
     }
@@ -350,7 +354,7 @@ export class ModelRepository {
     const whereClauses: string[] = [];
     for (const [k, v] of Object.entries(args.where)) {
       if (v === undefined) continue;
-      const col = toSnake(k);
+      const col = toSnake(k, this.tableName);
       whereClauses.push(`"${col}" = $${idx++}`);
       values.push(v);
     }
@@ -378,7 +382,7 @@ export class ModelRepository {
     let idx = 1;
 
     for (const [k, v] of Object.entries(args.where)) {
-      const col = toSnake(k);
+      const col = toSnake(k, this.tableName);
       whereClauses.push(`"${col}" = $${idx++}`);
       values.push(v);
     }
@@ -396,7 +400,7 @@ export class ModelRepository {
     if (args?.where) {
       for (const [k, v] of Object.entries(args.where)) {
         if (v === undefined) continue;
-        const col = toSnake(k);
+        const col = toSnake(k, this.tableName);
         if (v === null) {
           conditions.push(`"${col}" IS NULL`);
         } else if (typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date)) {
