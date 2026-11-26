@@ -173,7 +173,7 @@ Every module is built as an independent, encapsulated NestJS module containing i
 | **17** | `AftercareModule` | Relapse prevention tracking, scheduled recovery check-ins (7/14/30/60/90 days), outpatient support group attendance, family follow-up logs, recovery milestone celebrations. | `PatientsModule`, `CommunicationModule`, `CounsellingModule` |
 | **18** | `FamilyModule` | Next-of-kin & guardian profiles, family counselling session tracking, communication consent preferences, primary billing guarantor designations. | `PatientsModule`, `CounsellingModule`, `BillingModule` |
 | **19** | `ReferralModule` | Tracking referring partners (hospitals, psychiatrists, churches, employers, recovery alumni), incoming referral pipeline, outbound clinical referrals, partner engagement logs. | `CrmAdmissionsModule`, `PatientsModule` |
-| **20** | `CommunicationModule` | Multi-channel communication service (SMS via Africa's Talking, WhatsApp Cloud API, transactional Email via SMTP/SendGrid), communication logging, templating engine. | `AuditModule` |
+| **20** | `CommunicationModule` | Multi-channel communication service (ByteWave SMS via HTTP/OAuth2, WhatsApp via Baileys, mock drivers for development), editable SMS templates, gateway credentials and delivery logging. | `AuditModule` |
 | **21** | `FeedbackModule` | Patient satisfaction surveys, family feedback, formal complaint filing, resolution workflows, quality of care ratings. | `PatientsModule`, `StaffModule` |
 | **22** | `ManagementDashboardModule` | Executive summary metrics: census by ward, detox bed occupancy, admissions pipeline, revenue collected vs outstanding in KES, incident counters, staff on duty. | Aggregates all operational modules |
 | **23** | `ReportsModule` | Standardized and custom reporting engine: clinical outcomes, financial summaries, MOH (Kenya Ministry of Health) statistical indicators, exportable to CSV/Excel and PDF. | Aggregates all clinical & financial data |
@@ -529,9 +529,9 @@ Background workers run asynchronously to prevent blocking HTTP endpoints:
 
 ### ADR-006: Provider-Agnostic Communication Gateway
 - **Status:** APPROVED
-- **Context:** Kenyan healthcare facilities frequently switch or fallback between SMS gateways (Africa's Talking, Advanta, Twilio) and WhatsApp Cloud API.
-- **Decision:** Create an abstract `SmsProvider` and `WhatsAppProvider` interface with a factory pattern, starting with Africa's Talking and WhatsApp Cloud API implementations and mock drivers for local development/testing.
-- **Consequences:** Zero vendor lock-in; reliable messaging redundancy.
+- **Context:** Kenyan healthcare facilities may change SMS gateways; the clinic currently uses ByteWave and an unofficial Baileys WhatsApp client.
+- **Decision:** Create an abstract `SmsProvider` and `WhatsAppProvider` interface with a factory pattern. Current drivers: ByteWave (HTTP/OAuth2) and Baileys, plus mocks for development/testing. The original implementations have since been replaced; the abstraction is retained so another gateway can be added without touching business logic.
+- **Consequences:** Zero vendor lock-in at the code level; the active gateways are configured from deployment environment variables or encrypted `system_settings`.
 
 ---
 
@@ -577,7 +577,7 @@ Background workers run asynchronously to prevent blocking HTTP endpoints:
 ### Phase 4: Transition, Recovery & Communications
 - Module 16: Discharge Management (Checklists, discharge summaries, financial clearance)
 - Module 17: Aftercare & Recovery (Cadence tracker 7-90 days, relapse prevention)
-- Module 20: Communication (SMS via Africa's Talking, WhatsApp, Email abstraction)
+- Module 20: Communication (ByteWave SMS, Baileys WhatsApp, editable templates)
 - Module 21: Feedback & Complaints (Surveys, patient satisfaction, resolution)
 - Module 26: Integrations (Public website webhook, Daraja M-Pesa adapter, export)
 - Module 27: Automation (BullMQ schedulers, overdue alerts, expiry triggers)

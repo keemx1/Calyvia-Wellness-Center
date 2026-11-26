@@ -93,7 +93,7 @@ The following items are required from the Project Owner and DevOps Lead (Dev 3) 
 | **B-1** | **Supabase Organization & Projects Access** | Staging and Production Supabase projects (Project Ref, DB credentials, API keys) | Project Owner / Dev 3 | **BLOCKER** |
 | **B-2** | **DNS Configuration for Subdomain** | Pointing `portal.calyviawellness.co.ke` to the Next.js portal hosting target | Project Owner / Domain Registrar | Pending Staging Setup |
 | **B-3** | **Safaricom Daraja Sandbox API Credentials** | Consumer Key, Consumer Secret, Passkey, Shortcode for M-Pesa STK Push testing | Project Owner / Dev 3 | Mock active, Sandbox needed for W3 |
-| **B-4** | **Africa's Talking / WhatsApp Sandbox Credentials** | SMS & WhatsApp notification integration testing | Dev 3 | Mock active, Sandbox needed for W3 |
+| **B-4** | **SMS / WhatsApp Gateway Credentials** | SMS & WhatsApp notification integration testing | Dev 3 | Mock active, Sandbox needed for W3 |
 | **B-5** | **Public Website CMS Integration Boundary** | Confirmation of public site rendering architecture (API endpoint vs static export) | Project Owner / Webmaster | Documented in Design System |
 
 ---

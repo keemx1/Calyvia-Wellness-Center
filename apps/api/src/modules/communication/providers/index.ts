@@ -5,7 +5,6 @@ import { ConfigResolver } from './config-resolver';
 import { MockSmsProvider } from './mock-sms.provider';
 import { MockWhatsAppProvider } from './mock-whatsapp.provider';
 import { ByteWaveSmsProvider } from './bytewave-sms.provider';
-import { AfricasTalkingSmsProvider } from './africas-talking-sms.provider';
 import { BaileysWhatsAppProvider, getBaileysGateway } from './baileys-whatsapp.provider';
 
 export * from './sms-provider';
@@ -14,7 +13,6 @@ export * from './config-resolver';
 export * from './mock-sms.provider';
 export * from './mock-whatsapp.provider';
 export * from './bytewave-sms.provider';
-export * from './africas-talking-sms.provider';
 export * from './baileys-whatsapp.provider';
 
 const logger = new Logger('CommunicationProviders');
@@ -44,7 +42,7 @@ class UnavailableWhatsAppProvider implements WhatsAppProvider {
  * Driver selection is driven by configuration so we can move from local dev ->
  * sandbox -> production without code changes:
  *
- *   SMS_PROVIDER       mock | bytewave | africas_talking
+ *   SMS_PROVIDER       mock (dev only) | bytewave
  *   WHATSAPP_PROVIDER  mock | baileys
  *
  * The provider name resolves through `ConfigResolver` (deployment env wins,
@@ -59,9 +57,6 @@ export async function createSmsProvider(config: ConfigResolver): Promise<SmsProv
     switch (provider) {
       case 'bytewave':
         return new ByteWaveSmsProvider(config);
-      case 'africas_talking':
-      case 'africastalking':
-        return new AfricasTalkingSmsProvider(config);
       case 'mock':
         return new MockSmsProvider();
       default:

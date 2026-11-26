@@ -245,7 +245,7 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
           recipientPhone: '+254712345678',
           messageType: 'SMS',
           messageBody: 'Hello there',
-          providerMessageId: 'ATXid_123',
+          providerMessageId: 'BW-123',
           deliveryStatus: 'SENT',
           provider: 'BYTEWAVE',
           sentAt: new Date('2026-11-19T10:00:00Z'),
@@ -261,7 +261,7 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
         recipient: '+254712345678',
         channel: 'SMS',
         body: 'Hello there',
-        providerRef: 'ATXid_123',
+        providerRef: 'BW-123',
         status: 'SENT',
         provider: 'BYTEWAVE',
         costKes: 0.25,
@@ -325,7 +325,18 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
    * and the deployment environment always wins.
    */
   describe('gateway configuration resolution', () => {
-    const ENV_KEYS = ['SMS_PROVIDER', 'AFRICASTALKING_USERNAME', 'AFRICASTALKING_API_KEY'] as const;
+    const ENV_KEYS = [
+      'SMS_PROVIDER',
+      'BYTEWAVE_API_MODE',
+      'BYTEWAVE_API_URL',
+      'BYTEWAVE_API_KEY',
+      'BYTEWAVE_SENDER_ID',
+      'BYTEWAVE_KEY_PARAM',
+      'BYTEWAVE_PARAM_TO',
+      'BYTEWAVE_PARAM_MESSAGE',
+      'BYTEWAVE_PARAM_SENDER',
+      'BYTEWAVE_ID_FIELD',
+    ] as const;
     const saved: Record<string, string | undefined> = {};
 
     beforeEach(() => {
@@ -342,35 +353,20 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       }
     });
 
-    it('dispatches using credentials stored in system_settings when the environment is empty', async () => {
-      const atResponse = {
-        SMSMessageData: {
-          Message: 'Sent to 1/1 Total Cost: KES 0.8000 Message parts: 1',
-          Recipients: [
-            {
-              statusCode: 100,
-              number: '+254712345678',
-              status: 'Success',
-              cost: 'KES 0.8000',
-              messageId: 'ATXid_999',
-            },
-          ],
-        },
-      };
-
+    it('dispatches using ByteWave credentials stored in system_settings when the environment is empty', async () => {
       const fetchSpy = jest
         .spyOn(globalThis, 'fetch' as any)
         .mockResolvedValue({
           ok: true,
           status: 200,
-          text: async () => JSON.stringify(atResponse),
+          text: async () => JSON.stringify({ id: 'BW-999', status: 'sent' }),
         } as any);
 
       mockSettings = makeSettings({
-        'gateway.sms.provider': 'africas_talking',
-        'gateway.sms.africastalking.username': 'calyvia',
-        'gateway.sms.africastalking.api_key': 'db-stored-secret',
-        'gateway.sms.africastalking.sender_id': 'CALYVIA',
+        'gateway.sms.provider': 'bytewave',
+        'gateway.sms.bytewave.api_url': 'https://portal.bytewavenetworks.com/api/http/',
+        'gateway.sms.bytewave.api_key': 'db-stored-key',
+        'gateway.sms.bytewave.sender_id': 'CALYVIA',
       });
 
       const module: TestingModule = await Test.createTestingModule({
@@ -389,16 +385,19 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
         body: 'Reminder from system_settings config',
       });
 
-      // The DB-configured driver really ran.
+      // The DB-configured driver really ran, with no environment override.
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0] as any[];
-      expect(String(url)).toContain('/version1/messaging');
-      expect((init.headers as any).apiKey).toBe('db-stored-secret');
+      const parsedUrl = new URL(String(url));
+      expect(parsedUrl.pathname).toBe('/api/http/send');
+      expect(parsedUrl.searchParams.get('apiKey')).toBe('db-stored-key');
+      expect(parsedUrl.searchParams.get('recipients')).toBe('254712345678');
+      expect(parsedUrl.searchParams.get('sender')).toBe('CALYVIA');
+      expect((init as any).method).toBe('GET');
 
       const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
-      expect(data.provider).toBe('AFRICAS_TALKING');
-      expect(data.providerMessageId).toBe('ATXid_999');
-      expect(data.costKes).toBe(0.8);
+      expect(data.provider).toBe('BYTEWAVE');
+      expect(data.providerMessageId).toBe('BW-999');
       expect(data.deliveryStatus).toBe('SENT');
     });
 

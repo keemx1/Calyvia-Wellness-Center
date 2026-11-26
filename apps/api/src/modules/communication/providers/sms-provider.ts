@@ -1,9 +1,9 @@
 /**
  * SMS provider abstraction.
  *
- * Per ADR-001 the gateway layer is provider-agnostic so we can swap or fall back
- * between Kenyan SMS aggregators (ByteWave, Africa's Talking, Advanta, Twilio)
- * without touching business logic. Every driver implements this contract.
+ * Per ADR-001 the gateway layer stays provider-agnostic so another aggregator can
+ * be added without touching business logic. ByteWave is the production driver;
+ * `mock` exists for local development and tests. Every driver implements this contract.
  */
 
 export interface SmsSendInput {

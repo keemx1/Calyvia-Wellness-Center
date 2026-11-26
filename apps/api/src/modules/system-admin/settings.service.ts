@@ -32,8 +32,9 @@ export const GATEWAY_SETTINGS: GatewaySettingDef[] = [
     envVar: 'SMS_PROVIDER',
     label: 'SMS provider',
     group: 'SMS',
-    description: 'Which SMS gateway dispatches messages.',
-    options: ['mock', 'bytewave', 'africas_talking'],
+    description:
+      'Which SMS gateway dispatches messages. Use bytewave in production; mock is for local development only.',
+    options: ['mock', 'bytewave'],
   },
   {
     key: 'gateway.sms.bytewave.mode',
@@ -84,30 +85,6 @@ export const GATEWAY_SETTINGS: GatewaySettingDef[] = [
     label: 'ByteWave sender ID',
     group: 'SMS',
     description: 'Registered sender name or shortcode shown to recipients.',
-    placeholder: 'CALYVIA',
-  },
-  {
-    key: 'gateway.sms.africastalking.username',
-    envVar: 'AFRICASTALKING_USERNAME',
-    label: "Africa's Talking username",
-    group: 'SMS',
-    description: 'Use "sandbox" while testing.',
-    placeholder: 'sandbox',
-  },
-  {
-    key: 'gateway.sms.africastalking.api_key',
-    envVar: 'AFRICASTALKING_API_KEY',
-    label: "Africa's Talking API key",
-    group: 'SMS',
-    description: 'API key from the Africa’s Talking dashboard. Stored encrypted.',
-    secret: true,
-  },
-  {
-    key: 'gateway.sms.africastalking.sender_id',
-    envVar: 'AFRICASTALKING_SENDER_ID',
-    label: "Africa's Talking sender ID",
-    group: 'SMS',
-    description: 'Registered sender name or shortcode.',
     placeholder: 'CALYVIA',
   },
   {

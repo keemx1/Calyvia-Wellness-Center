@@ -55,7 +55,7 @@ The application codebase is structured as a TypeScript monorepo:
 | **17** | **Aftercare & Recovery** | `AftercarePlan`, `AftercareCheckin` | `POST /aftercare/checkins`, `GET /aftercare/plans` | Implemented & Verified. Structured 7, 14, 30, 60, 90-day milestone follow-up cadence. | Direct tables + `pg_cron` / Edge Function for cadence scheduling. |
 | **18** | **Family Management** | `EmergencyContact` | `POST /family/contacts`, `GET /family/patient/:id` | Implemented & Verified. Primary guarantor designation, family therapy consent. | Direct table linked to `patients`. |
 | **19** | **Referrals** | `ReferralPartner` | `POST /referrals/partners`, `GET /referrals/partners` | Implemented & Verified. Hospital & psychiatrist partner tracking, attribution. | Direct table + Front Desk / Management access. |
-| **20** | **Communication** | `CommunicationLog` | `POST /communication/send`, `GET /communication/logs` | Implemented & Verified. SMS (Africa's Talking) and WhatsApp Cloud API delivery logs. | Direct table + Edge Function for dispatch hooks. |
+| **20** | **Communication** | `CommunicationLog` | `POST /communication/send`, `GET /communication/logs` | Implemented & Verified. ByteWave SMS and Baileys WhatsApp delivery logs, editable SMS templates. | Direct table + Edge Function for dispatch hooks. |
 | **21** | **Feedback** | `FeedbackSurvey` | `POST /feedback/surveys`, `GET /feedback/summary` | Implemented & Verified. Patient NPS and family care surveys. | Direct table + anonymous insertion RLS policy. |
 | **22** | **Dashboard** | N/A (Aggregated) | `GET /dashboard/metrics` | Implemented & Verified. Live bed census, active detox count, MTD revenue in KES. | Direct database views / RPC functions. |
 | **23** | **Reports & Analytics** | N/A (Aggregated) | `GET /reports/financial`, `GET /reports/clinical-outcomes` | Implemented & Verified. Financial ledger exports, clinical recovery summaries. | Database views / server-side reporting queries. |
@@ -112,7 +112,7 @@ The system defines 11 distinct staff roles:
    - Endpoint: `POST /integrations/webhook/website-lead`.
    - Payload: Name, phone, email, substance/concern, relationship to patient.
 3. **Communication Gateway (SMS & WhatsApp):**
-   - Supports Africa's Talking SMS and WhatsApp Cloud API for appointment reminders and family updates.
+   - Supports ByteWave SMS and Baileys WhatsApp for appointment reminders and family updates.
 
 ---
 

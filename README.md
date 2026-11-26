@@ -55,7 +55,7 @@ $$\text{Enquiry} \longrightarrow \text{Triage \& Assessment} \longrightarrow \te
 17. **Aftercare & Recovery:** Structured 7, 14, 30, 60, and 90-day milestone follow-up cadence, relapse risk tracking.
 18. **Family Management:** Next-of-kin profiles, family counselling records, communication consent, primary billing guarantors.
 19. **Referral Management:** Referring partner tracking (hospitals, psychiatrists, recovery fellowships), conversion analytics.
-20. **Communication:** Provider-agnostic SMS (Africa's Talking) and WhatsApp Cloud API delivery hub with delivery logs.
+20. **Communication:** ByteWave SMS and Baileys WhatsApp delivery hub with editable SMS templates, gateway credentials, and delivery logs.
 21. **Feedback & Complaints:** Patient satisfaction surveys, family NPS ratings, complaint resolution workflows.
 22. **Management Dashboard:** Real-time facility metrics, bed census, detox cases, therapy volumes, MTD revenue in KES.
 23. **Reports & Analytics:** Financial performance summaries, clinical detox outcomes, exportable to CSV/PDF.

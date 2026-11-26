@@ -46,7 +46,7 @@ All backend endpoints are mounted under `/api/v1` and documented via OpenAPI/Swa
 | **17. Aftercare** | `/api/v1/aftercare` | `POST /checkins`, `GET /plans` | Sobriety milestone tracking (Day 7, 14, 30, 60, 90). |
 | **18. Family** | `/api/v1/family` | `POST /contacts`, `GET /patient/:patientId` | Guardian registration, communication consents, guarantor designation. |
 | **19. Referrals** | `/api/v1/referrals` | `POST /partners`, `GET /partners` | Partner directory and lead attribution. |
-| **20. Comms** | `/api/v1/communication` | `POST /send`, `GET /logs` | SMS (Africa's Talking) and WhatsApp Cloud API hub. |
+| **20. Comms** | `/api/v1/communication` | `POST /send`, `GET /logs` | ByteWave SMS and Baileys WhatsApp hub with editable templates. |
 | **21. Feedback** | `/api/v1/feedback` | `POST /surveys`, `GET /summary` | Patient & family satisfaction surveys, NPS calculation. |
 | **22. Dashboard** | `/api/v1/dashboard` | `GET /metrics` | Executive facility KPI aggregation (census, revenue, detox). |
 | **23. Reports** | `/api/v1/reports` | `GET /financial`, `GET /clinical-outcomes` | Financial and clinical outcome report generation. |
