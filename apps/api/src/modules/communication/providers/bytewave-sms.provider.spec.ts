@@ -98,6 +98,35 @@ describe('ByteWaveSmsProvider (HTTP + OAuth2)', () => {
     expect(init.method).toBe('GET');
   });
 
+  it('ignores stale BYTEWAVE_PARAM_* env overrides that break real sends', async () => {
+    process.env.BYTEWAVE_KEY_PARAM = 'apiKey';
+    process.env.BYTEWAVE_PARAM_TO = 'recipients';
+    process.env.BYTEWAVE_PARAM_SENDER = 'sender';
+
+    const fetchSpy = jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'success', id: 'BW-LEGACY-1' }),
+    } as any);
+    const resolver = makeResolver({
+      'gateway.sms.bytewave.mode': 'http',
+      'gateway.sms.bytewave.api_key': 'http-key-123',
+    });
+
+    const res = await new ByteWaveSmsProvider(resolver).send({
+      to: '+254712345678',
+      body: 'Hi',
+    });
+
+    expect(res.status).toBe('SENT');
+    const u = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(u.pathname).toBe('/api/http/sms/send');
+    expect(u.searchParams.get('api_token')).toBe('http-key-123');
+    expect(u.searchParams.has('apiKey')).toBe(false);
+    expect(u.searchParams.get('recipient')).toBe('254712345678');
+    expect(u.searchParams.has('recipients')).toBe(false);
+  });
+
   it('marks HTTP dispatch FAILED when the gateway reports success:false', async () => {
     jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({
       ok: true,

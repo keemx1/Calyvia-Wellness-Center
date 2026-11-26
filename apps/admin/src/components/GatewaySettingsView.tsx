@@ -222,9 +222,10 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
     }
   };
 
-  const handleTestSms = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) return;
+  // Called from a plain button (not a nested <form>): this panel lives inside the
+  // gateway-settings form, so a nested form would submit the outer form and reload.
+  const handleTestSms = async () => {
+    if (!token || !testPhone.trim()) return;
     setTestingSms(true);
     setTestResult(null);
     setMsg(null);
@@ -573,7 +574,7 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 <code className="font-mono">SMS_PROVIDER</code> deployment override so you can verify
                 the key immediately. The key is never displayed.
               </p>
-              <form onSubmit={handleTestSms} className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2">
                 <input
                   type="tel"
                   value={testPhone}
@@ -582,7 +583,8 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                   className="flex-1 px-3 py-2 rounded-xl border border-border bg-card text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleTestSms}
                   disabled={testingSms || !testPhone.trim()}
                   className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition"
                 >
@@ -593,7 +595,7 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                   )}
                   <span>{testingSms ? 'Sending…' : 'Send test SMS'}</span>
                 </button>
-              </form>
+              </div>
               {testResult && (
                 <pre className="text-[10px] leading-relaxed text-foreground overflow-x-auto whitespace-pre-wrap">
                   {JSON.stringify(testResult, null, 2)}

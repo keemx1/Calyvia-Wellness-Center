@@ -20,10 +20,8 @@ import { ConfigResolver } from './config-resolver';
  *   gateway.sms.bytewave.client_id     BYTEWAVE_CLIENT_ID      (oauth2; or parsed from api_key)
  *   gateway.sms.bytewave.client_secret BYTEWAVE_CLIENT_SECRET  (oauth2, encrypted; or parsed from api_key)
  *   gateway.sms.bytewave.sender_id     BYTEWAVE_SENDER_ID      CALYVIA
- *   -                                  BYTEWAVE_KEY_PARAM       api_token (http query param for the key)
- *   -                                  BYTEWAVE_PARAM_TO        recipient
- *   -                                  BYTEWAVE_PARAM_MESSAGE   message
- *   -                                  BYTEWAVE_PARAM_SENDER    sender_id
+ * Wire field names (fixed, not env-overridable): api_token, recipient, message, sender_id.
+ * The legacy BYTEWAVE_KEY_PARAM / PARAM_* env vars are deliberately ignored.
  *   -                                  BYTEWAVE_ID_FIELD        id
  *
  * OAuth key convenience: when mode is oauth2 and client id/secret are not set
@@ -147,12 +145,13 @@ export class ByteWaveSmsProvider implements SmsProvider {
         await this.config.get('BYTEWAVE_SENDER_ID', 'gateway.sms.bytewave.sender_id'),
         'CALYVIA',
       ),
-      // Verified against the live portal: /api/http/sms/send requires
-      // recipient, message and api_token. The portal also accepts sender_id.
-      keyParam: pick(process.env.BYTEWAVE_KEY_PARAM, 'api_token'),
-      paramTo: pick(process.env.BYTEWAVE_PARAM_TO, 'recipient'),
-      paramMessage: pick(process.env.BYTEWAVE_PARAM_MESSAGE, 'message'),
-      paramSender: pick(process.env.BYTEWAVE_PARAM_SENDER, 'sender_id'),
+      // Wire-format field names are fixed by the portal. They used to be env
+      // configurable, but stale deployments carried the old `recipients`/`apiKey`
+      // values and silently broke every send. Never let an override win here.
+      keyParam: 'api_token',
+      paramTo: 'recipient',
+      paramMessage: 'message',
+      paramSender: 'sender_id',
       idField: pick(process.env.BYTEWAVE_ID_FIELD, 'id'),
     };
   }
