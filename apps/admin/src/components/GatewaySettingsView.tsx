@@ -66,6 +66,9 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
   const [diagnosing, setDiagnosing] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [diagnostics, setDiagnostics] = useState<any | null>(null);
+  const [testPhone, setTestPhone] = useState('');
+  const [testingSms, setTestingSms] = useState(false);
+  const [testResult, setTestResult] = useState<any | null>(null);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -216,6 +219,36 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
       setMsg({ type: 'error', text: err?.message || 'Network error resetting the session.' });
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleTestSms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    setTestingSms(true);
+    setTestResult(null);
+    setMsg(null);
+    try {
+      const res = await fetch(`${apiUrl}/communication/sms-gateway/test`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient: testPhone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && data.success !== false) {
+        throw new Error(data.message || 'SMS gateway test request failed.');
+      }
+      setTestResult(data);
+      setMsg({
+        type: data.success ? 'success' : 'error',
+        text: data.success
+          ? `Test SMS sent to ${data.recipient} (${data.status}).`
+          : data.detail || 'Test SMS failed — see the response below.',
+      });
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err?.message || 'Network error testing the SMS gateway.' });
+    } finally {
+      setTestingSms(false);
     }
   };
 
@@ -529,6 +562,44 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 </div>
               </div>
             ))}
+
+            <div className="rounded-xl border border-border bg-surface-subtle p-4 space-y-2">
+              <h4 className="text-xs font-semibold text-foreground flex items-center space-x-1.5">
+                <Smartphone className="w-4 h-4 text-primary" />
+                <span>Test ByteWave SMS</span>
+              </h4>
+              <p className="text-[11px] text-muted-foreground">
+                Sends one real SMS using the credentials saved above. This ignores the{' '}
+                <code className="font-mono">SMS_PROVIDER</code> deployment override so you can verify
+                the key immediately. The key is never displayed.
+              </p>
+              <form onSubmit={handleTestSms} className="flex items-center space-x-2">
+                <input
+                  type="tel"
+                  value={testPhone}
+                  onChange={(e) => setTestPhone(e.target.value)}
+                  placeholder="0712345678"
+                  className="flex-1 px-3 py-2 rounded-xl border border-border bg-card text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <button
+                  type="submit"
+                  disabled={testingSms || !testPhone.trim()}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition"
+                >
+                  {testingSms ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-4 h-4" />
+                  )}
+                  <span>{testingSms ? 'Sending…' : 'Send test SMS'}</span>
+                </button>
+              </form>
+              {testResult && (
+                <pre className="text-[10px] leading-relaxed text-foreground overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(testResult, null, 2)}
+                </pre>
+              )}
+            </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <p className="text-[10px] text-muted-foreground">

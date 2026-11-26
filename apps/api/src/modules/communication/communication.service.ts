@@ -7,6 +7,9 @@ import {
   createWhatsAppProvider,
   bootstrapWhatsApp,
   getBaileysGateway,
+  ByteWaveSmsProvider,
+  BYTEWAVE_HTTP_BASE,
+  BYTEWAVE_OAUTH_BASE,
 } from './providers';
 import {
   listSmsTemplates,
@@ -211,6 +214,94 @@ export class CommunicationService implements OnModuleInit {
   async resetWhatsAppSession() {
     await getBaileysGateway().resetSession();
     return getBaileysGateway().getStatus();
+  }
+
+  /**
+   * Send one REAL SMS through the credentials saved in Gateway Credentials.
+   *
+   * The normal send path honours the deployment's SMS_PROVIDER override (which may
+   * still be `mock`). This diagnostic deliberately reads the saved ByteWave rows
+   * directly so an operator can verify a key immediately after saving it. It never
+   * returns the key, and an invalid saved endpoint falls back to the driver default
+   * rather than pretending the test succeeded.
+   */
+  async testByteWaveSms(recipient?: string) {
+    if (!recipient?.trim()) {
+      throw new BadRequestException('Provide a recipient phone number for the test SMS.');
+    }
+    const to = KenyaUtils.normalizePhoneNumber(recipient.trim());
+
+    const read = async (key: string) => (await this.settings.readSetting(key))?.trim() || '';
+    const apiKey = await read('gateway.sms.bytewave.api_key');
+    if (!apiKey || apiKey === '[ENCRYPTED_DATA_ACCESS_DENIED]') {
+      throw new BadRequestException(
+        'No usable ByteWave API key is saved. Save it under Gateway Credentials first ' +
+          '(and make sure ENCRYPTION_MASTER_KEY matches the one used at save time).',
+      );
+    }
+
+    const savedMode = (await read('gateway.sms.bytewave.mode')).toLowerCase();
+    const mode: 'http' | 'oauth2' =
+      savedMode === 'oauth2' || (!savedMode && /^oc_sk_/i.test(apiKey)) ? 'oauth2' : 'http';
+    const defaultUrl = mode === 'oauth2' ? BYTEWAVE_OAUTH_BASE : BYTEWAVE_HTTP_BASE;
+    const savedUrl = await read('gateway.sms.bytewave.api_url');
+    const apiUrl = /^https?:\/\//i.test(savedUrl) ? savedUrl : defaultUrl;
+    const senderId = (await read('gateway.sms.bytewave.sender_id')) || 'CALYVIA';
+    const clientId = await read('gateway.sms.bytewave.client_id');
+    const clientSecret = await read('gateway.sms.bytewave.client_secret');
+
+    // DB-only resolver: the point of this endpoint is to test exactly what was saved.
+    const values: Record<string, string> = {
+      'gateway.sms.bytewave.mode': mode,
+      'gateway.sms.bytewave.api_url': apiUrl,
+      'gateway.sms.bytewave.api_key': apiKey,
+      'gateway.sms.bytewave.client_id': clientId,
+      'gateway.sms.bytewave.client_secret': clientSecret,
+      'gateway.sms.bytewave.sender_id': senderId,
+    };
+    const resolver = { get: async (_envVar: string, key: string) => values[key] };
+
+    let result;
+    try {
+      result = await new ByteWaveSmsProvider(resolver).send({
+        to,
+        body: 'Calyvia ByteWave test. Please ignore.',
+        senderId,
+      });
+    } catch (err: any) {
+      // A driver construction failure must never look like a successful test.
+      return {
+        success: false,
+        status: 'FAILED',
+        recipient: to,
+        mode,
+        endpoint: apiUrl,
+        endpointCorrected: apiUrl !== savedUrl,
+        senderId,
+        providerMessageId: null,
+        costKes: 0,
+        detail: err?.message || String(err),
+      };
+    }
+
+    const redact = (text: string): string =>
+      [apiKey, clientId, clientSecret]
+        .filter(Boolean)
+        .reduce((acc, secret) => acc.split(secret).join('<redacted>'), text);
+
+    return {
+      success: result.status === 'SENT',
+      status: result.status,
+      provider: result.provider,
+      recipient: to,
+      mode,
+      endpoint: apiUrl,
+      endpointCorrected: apiUrl !== savedUrl,
+      senderId,
+      providerMessageId: result.providerMessageId,
+      costKes: result.costKes,
+      detail: redact(JSON.stringify(result.raw ?? {})).slice(0, 1000),
+    };
   }
 
   /** Request a WhatsApp pairing code for a phone number (headless linking). */

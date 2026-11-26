@@ -429,5 +429,54 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
       const data = mockPrisma.communicationLog.create.mock.calls[0][0].data;
       expect(data.provider).toBe('MOCK');
     });
+
+    it('tests the saved ByteWave key even when SMS_PROVIDER=mock and api_url is invalid', async () => {
+      process.env.SMS_PROVIDER = 'mock';
+      const fetchSpy = jest
+        .spyOn(globalThis, 'fetch' as any)
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ id: 'BW-TEST-1' }),
+        } as any);
+
+      mockSettings = makeSettings({
+        'gateway.sms.bytewave.api_key': 'saved-test-key',
+        // A real misconfiguration seen in production: someone saved an email here.
+        'gateway.sms.bytewave.api_url': 'someone@example.com',
+        'gateway.sms.bytewave.sender_id': 'BytwaveSMS',
+      });
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          CommunicationService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: SystemSettingsService, useValue: mockSettings },
+        ],
+      }).compile();
+      const localService = module.get<CommunicationService>(CommunicationService);
+
+      const result = await localService.testByteWaveSms('0703377395');
+
+      expect(result).toMatchObject({
+        success: true,
+        status: 'SENT',
+        recipient: '+254703377395',
+        endpoint: 'https://portal.bytewavenetworks.com/api/http/',
+        endpointCorrected: true,
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const url = new URL(String(fetchSpy.mock.calls[0][0]));
+      expect(url.pathname).toBe('/api/http/send');
+      expect(url.searchParams.get('apiKey')).toBe('saved-test-key');
+      expect(url.searchParams.get('recipients')).toBe('254703377395');
+      // Secrets are never echoed back to the caller.
+      expect(JSON.stringify(result)).not.toContain('saved-test-key');
+    });
+
+    it('refuses to claim success when no saved key exists', async () => {
+      await expect(service.testByteWaveSms('0703377395')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
   });
 });

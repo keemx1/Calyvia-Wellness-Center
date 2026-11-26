@@ -96,6 +96,19 @@ export class CommunicationController {
     return this.communicationService.resetWhatsAppSession();
   }
 
+  @Post('sms-gateway/test')
+  @Roles(UserRole.SUPER_ADMIN)
+  @AuditLog({ action: 'TEST_SMS_GATEWAY', resource: 'SYSTEM_SETTING' })
+  @ApiOperation({
+    summary: 'Send one real SMS using the saved ByteWave credentials',
+    description:
+      'SUPER_ADMIN only. Tests the credentials saved in Gateway Credentials directly, even when ' +
+      'SMS_PROVIDER is overridden by the deployment environment. The API key is never returned.',
+  })
+  async testSmsGateway(@Body() body?: { recipient?: string }) {
+    return this.communicationService.testByteWaveSms(body?.recipient);
+  }
+
   @Post('whatsapp/pair')
   @ApiOperation({
     summary: 'Request a WhatsApp pairing code for a phone number (no QR scan needed)',

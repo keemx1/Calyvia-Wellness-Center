@@ -396,17 +396,17 @@ export class BaileysWhatsAppGateway {
       // Give the socket a bounded chance to release its files before unlinking.
       await new Promise<void>((done) => {
         let settled = false;
-        let timer: NodeJS.Timeout | undefined;
+        const state: { timer?: NodeJS.Timeout } = {};
         const finish = () => {
           if (settled) return;
           settled = true;
-          if (timer) clearTimeout(timer);
+          if (state.timer) clearTimeout(state.timer);
           done();
         };
         sock.ev?.once?.('connection.update', (u: any) => {
           if (u?.connection === 'close') finish();
         });
-        timer = setTimeout(finish, 2_000);
+        state.timer = setTimeout(finish, 2_000);
         try {
           sock.end?.(undefined);
         } catch {
