@@ -46,6 +46,27 @@ describe('BaileysWhatsAppGateway', () => {
     expect((gw as any).scheduleReconnect).not.toHaveBeenCalled();
   });
 
+  it('sends invoice PDF bytes as a Buffer attachment', async () => {
+    const gw = makeGateway();
+    const sendMessage = jest.fn().mockResolvedValue({ key: { id: 'doc-1' } });
+    (gw as any).sock = { sendMessage };
+    (gw as any).status = 'open';
+
+    const result = await gw.sendDocument(
+      '0703377395',
+      new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]),
+      'Calyvia-INV-2026-0042.pdf',
+      'Your invoice',
+    );
+
+    expect(result).toEqual({ messageId: 'doc-1' });
+    const payload = sendMessage.mock.calls[0][1];
+    expect(Buffer.isBuffer(payload.document)).toBe(true);
+    expect(payload.document.toString('ascii', 0, 4)).toBe('%PDF');
+    expect(payload.fileName).toBe('Calyvia-INV-2026-0042.pdf');
+    expect(payload.caption).toBe('Your invoice');
+  });
+
   it('resolves pairing waiters when a QR arrives', async () => {
     const gw = makeGateway();
     const waiting = (gw as any).waitForQr(2000);

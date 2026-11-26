@@ -379,8 +379,12 @@ export class BaileysWhatsAppGateway {
       );
     }
     const jid = toWhatsAppJid(to);
+    // Baileys' media pipeline checks `Buffer.isBuffer()` and otherwise expects
+    // an object with a `.url`. pdf-lib returns a plain Uint8Array, so without
+    // this conversion it tries `item.url.toString()` and throws a 503.
+    const document = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
     const sent = await this.sock.sendMessage(jid, {
-      document: buffer,
+      document,
       mimetype: 'application/pdf',
       fileName,
       ...(caption ? { caption } : {}),
