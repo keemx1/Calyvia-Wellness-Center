@@ -166,8 +166,15 @@ export class CommunicationService implements OnModuleInit {
   /** Request a WhatsApp pairing code for a phone number (headless linking). */
   async requestWhatsAppPairing(phone: string) {
     const normalized = KenyaUtils.normalizePhoneNumber(phone);
-    const code = await getBaileysGateway().requestPairingCode(normalized);
-    return { phone: normalized, pairingCode: code };
+    try {
+      const code = await getBaileysGateway().requestPairingCode(normalized);
+      return { phone: normalized, pairingCode: code };
+    } catch (err: any) {
+      // A 500 with a bare "Connection Closed" told the operator nothing.
+      throw new ServiceUnavailableException(
+        err?.message || 'Could not request a WhatsApp pairing code.',
+      );
+    }
   }
 
   /** Translate a DB row (snake or camel) into the shape the admin UI expects. */

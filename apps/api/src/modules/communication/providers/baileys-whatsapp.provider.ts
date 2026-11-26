@@ -45,6 +45,16 @@ export class BaileysWhatsAppGateway {
   private pairingCode: string | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private starting: Promise<void> | null = null;
+  /** Why the socket last closed — surfaced via getStatus() for diagnosis. */
+  private lastDisconnect: { statusCode: number | null; message: string | null; at: string } | null =
+    null;
+  /** WhatsApp web protocol version in use and where it came from. */
+  private versionInfo: { version: [number, number, number] | null; source: 'latest' | 'bundled' } = {
+    version: null,
+    source: 'bundled',
+  };
+  /** Waiters parked until a QR arrives (pairing codes need a live handshake). */
+  private qrWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 
   constructor() {
     this.authDir = process.env.BAILEYS_AUTH_DIR || path.resolve(process.cwd(), '.baileys-auth');
@@ -64,6 +74,18 @@ export class BaileysWhatsAppGateway {
     await this.loadModule();
     fs.mkdirSync(this.authDir, { recursive: true });
 
+    // Tear down the previous socket (reconnect path) so two sockets never
+    // fight over the same session and WhatsApp doesn't close both.
+    if (this.sock) {
+      try {
+        this.sock.ev?.removeAllListeners?.();
+        this.sock.end?.(undefined);
+      } catch {
+        /* old socket is already dead */
+      }
+      this.sock = null;
+    }
+
     const { state, saveCreds } = await this.baileys.useMultiFileAuthState(this.authDir);
     this.saveCreds = saveCreds;
 
@@ -77,7 +99,9 @@ export class BaileysWhatsAppGateway {
         'fetchLatestBaileysVersion',
       );
       version = latest?.version;
+      if (version) this.versionInfo = { version, source: 'latest' };
     } catch (err: any) {
+      this.versionInfo = { version: null, source: 'bundled' };
       this.logger.warn(
         `Using bundled Baileys version (latest-version check failed: ${err?.message || err})`,
       );
@@ -108,37 +132,94 @@ export class BaileysWhatsAppGateway {
     });
 
     this.sock.ev.on('creds.update', this.saveCreds);
+    this.sock.ev.on('connection.update', (update: any) => this.handleConnectionUpdate(update));
+  }
 
-    this.sock.ev.on('connection.update', (update: any) => {
-      const { connection, lastDisconnect, qr } = update;
+  /** Single place that reacts to Baileys connection updates (also unit-tested directly). */
+  handleConnectionUpdate(update: any): void {
+    const { connection, lastDisconnect, qr } = update;
 
-      if (qr) {
-        this.qr = qr;
-        this.status = 'awaiting_qr';
-        this.logger.log('WhatsApp awaiting pairing — scan the QR via GET /communication/whatsapp/status');
+    if (qr) {
+      this.qr = qr;
+      this.status = 'awaiting_qr';
+      this.logger.log('WhatsApp awaiting pairing — scan the QR via GET /communication/whatsapp/status');
+      this.settleQrWaiters();
+    }
+
+    if (connection === 'open') {
+      this.status = 'open';
+      this.qr = null;
+      this.pairingCode = null;
+      this.logger.log('WhatsApp session connected.');
+      this.settleQrWaiters();
+    }
+
+    if (connection === 'close') {
+      const statusCode: number | null =
+        lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.statusCode ?? null;
+      const message: string | null =
+        lastDisconnect?.error?.message ||
+        lastDisconnect?.error?.output?.payload?.message ||
+        null;
+      this.lastDisconnect = { statusCode, message, at: new Date().toISOString() };
+
+      const loggedOut = statusCode === this.baileys?.DisconnectReason?.loggedOut;
+      this.status = loggedOut ? 'closed' : 'disconnected';
+      this.logger.warn(
+        `WhatsApp connection closed (code=${statusCode ?? 'unknown'}${message ? `, ${message}` : ''}).`,
+      );
+
+      if (loggedOut) {
+        this.logger.error(
+          'WhatsApp session was logged out. Clear BAILEYS_AUTH_DIR and re-pair the number.',
+        );
+        this.rejectQrWaiters(new Error('WhatsApp session was logged out; re-pair required.'));
+      } else {
+        this.scheduleReconnect();
       }
+    }
+  }
 
-      if (connection === 'open') {
-        this.status = 'open';
-        this.qr = null;
-        this.pairingCode = null;
-        this.logger.log('WhatsApp session connected.');
-      }
+  private settleQrWaiters(): void {
+    for (const w of this.qrWaiters.splice(0)) w.resolve();
+  }
 
-      if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = statusCode === this.baileys.DisconnectReason?.loggedOut;
-        this.status = loggedOut ? 'closed' : 'disconnected';
-        this.logger.warn(`WhatsApp connection closed (code=${statusCode ?? 'unknown'}).`);
+  private rejectQrWaiters(err: Error): void {
+    for (const w of this.qrWaiters.splice(0)) w.reject(err);
+  }
 
-        if (loggedOut) {
-          this.logger.error(
-            'WhatsApp session was logged out. Clear BAILEYS_AUTH_DIR and re-pair the number.',
-          );
-        } else {
-          this.scheduleReconnect();
-        }
-      }
+  /**
+   * Resolve once the socket reaches a state where pairing codes are possible
+   * (QR issued or fully open), or reject with the last close reason.
+   */
+  private waitForQr(ms: number): Promise<void> {
+    if (this.status === 'awaiting_qr' || this.status === 'open') return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const waiter = { resolve, reject };
+      this.qrWaiters.push(waiter);
+      const timer = setTimeout(() => {
+        this.qrWaiters = this.qrWaiters.filter((w) => w !== waiter);
+        const reason = this.lastDisconnect
+          ? `last close: ${this.lastDisconnect.statusCode ?? 'no-code'}${this.lastDisconnect.message ? ` — ${this.lastDisconnect.message}` : ''}`
+          : 'no close event recorded yet';
+        reject(
+          new Error(
+            `WhatsApp socket did not reach pairing state within ${Math.round(ms / 1000)}s (${reason}). ` +
+              'The API server may be unable to reach WhatsApp on port 443 (firewall/proxy egress), ' +
+              'or the Baileys protocol version is being rejected.',
+          ),
+        );
+      }, ms);
+      const originalResolve = waiter.resolve;
+      waiter.resolve = () => {
+        clearTimeout(timer);
+        originalResolve();
+      };
+      const originalReject = waiter.reject;
+      waiter.reject = (e: Error) => {
+        clearTimeout(timer);
+        originalReject(e);
+      };
     });
   }
 
@@ -176,12 +257,18 @@ export class BaileysWhatsAppGateway {
   /**
    * Ask WhatsApp for a pairing code (no QR scan needed). The code is entered on
    * the phone under "Linked devices" > "Link with phone number".
+   *
+   * WhatsApp only issues pairing codes after the websocket handshake produced a
+   * QR — asking earlier fails with a bare "Connection Closed". Wait for that
+   * state (up to 25s) so the caller gets an actionable error instead.
    */
-  async requestPairingCode(phoneE164: string): Promise<string> {
+  async requestPairingCode(phoneE164: string, waitMs = 25_000): Promise<string> {
     await this.start();
     if (!this.sock?.requestPairingCode) {
       throw new Error('This Baileys version does not support pairing codes; use the QR flow.');
     }
+    await this.waitForQr(waitMs);
+
     // Baileys wants digits only, with country code, no '+'.
     const digits = phoneE164.replace(/\D/g, '');
     const code = await this.sock.requestPairingCode(digits);
@@ -209,6 +296,9 @@ export class BaileysWhatsAppGateway {
       qr: this.qr,
       pairingCode: this.pairingCode,
       authDir: this.authDir,
+      lastDisconnect: this.lastDisconnect,
+      baileysVersion: this.versionInfo.version ? this.versionInfo.version.join('.') : null,
+      versionSource: this.versionInfo.source,
     };
   }
 

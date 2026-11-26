@@ -39,6 +39,9 @@ interface WhatsAppStatus {
   qr: string | null;
   pairingCode: string | null;
   authDir: string;
+  lastDisconnect?: { statusCode: number | null; message: string | null; at: string } | null;
+  baileysVersion?: string | null;
+  versionSource?: 'latest' | 'bundled';
 }
 
 const STATUS_STYLES: Record<string, { label: string; className: string }> = {
@@ -240,13 +243,27 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 </p>
               </div>
             ) : (
-              <div className="text-center">
-                <QrCode className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
+              <div className="text-center space-y-2">
+                <QrCode className="w-12 h-12 mx-auto text-muted-foreground/40 mb-1" />
                 <p className="text-sm font-semibold text-foreground">No QR code yet</p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Set the WhatsApp provider to <code className="font-mono">baileys</code> below, then
-                  restart the API and refresh.
-                </p>
+                {waStatus?.lastDisconnect ? (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-danger">Last connection attempt failed:</p>
+                    <p className="font-mono text-[10px] text-foreground break-words">
+                      {waStatus.lastDisconnect.statusCode
+                        ? `code ${waStatus.lastDisconnect.statusCode}: `
+                        : ''}
+                      {waStatus.lastDisconnect.message || 'no error message returned'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Check API runtime logs and outbound HTTPS/WebSocket access to WhatsApp (port 443).
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Socket is still connecting — the QR appears once WhatsApp completes the handshake.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -304,6 +321,12 @@ export const GatewaySettingsView: React.FC<GatewaySettingsViewProps> = ({ token,
                 directory <strong>is a credential</strong> — it must survive deploys and must never be
                 committed to git.
               </p>
+              {waStatus?.baileysVersion && (
+                <p className="text-[11px] text-muted-foreground">
+                  Protocol: <code className="font-mono">{waStatus.baileysVersion}</code> (
+                  {waStatus.versionSource})
+                </p>
+              )}
             </div>
           </div>
         </div>
