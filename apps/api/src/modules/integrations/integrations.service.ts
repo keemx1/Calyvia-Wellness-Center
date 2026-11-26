@@ -1,60 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../database/prisma.service';
 import { CrmService } from '../crm/crm.service';
+import { MpesaService } from '../billing/mpesa.service';
 
 @Injectable()
 export class IntegrationsService {
   constructor(
-    private prisma: PrismaService,
     private crmService: CrmService,
+    private mpesaService: MpesaService,
   ) {}
 
   async handleMpesaCallback(payload: any) {
-    const stkCallback = payload?.Body?.stkCallback;
-    if (!stkCallback) {
-      return { ResultCode: 1, ResultDesc: 'Rejected. Malformed payload' };
-    }
-
-    const checkoutRequestId = stkCallback.CheckoutRequestID;
-    const resultCode = stkCallback.ResultCode;
-    const resultDesc = stkCallback.ResultDesc;
-
-    let mpesaReceiptNumber = null;
-    let amount = 0;
-    let phoneNumber = '';
-
-    if (resultCode === 0 && stkCallback.CallbackMetadata?.Item) {
-      for (const item of stkCallback.CallbackMetadata.Item) {
-        if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = item.Value;
-        if (item.Name === 'Amount') amount = Number(item.Value);
-        if (item.Name === 'PhoneNumber') phoneNumber = String(item.Value);
-      }
-    }
-
-    try {
-      if (this.prisma && this.prisma.mpesaTransaction) {
-        await this.prisma.mpesaTransaction.create({
-          data: {
-            merchantRequestId: stkCallback.MerchantRequestID || 'N/A',
-            checkoutRequestId,
-            phoneNumber: phoneNumber || 'N/A',
-            amount,
-            mpesaReceiptNumber,
-            resultCode,
-            resultDesc,
-            rawCallbackJson: payload,
-          },
-        });
-      }
-    } catch {
-      // Fallback
-    }
-
-    return {
-      ResultCode: 0,
-      ResultDesc: 'Callback processed successfully',
-      receipt: mpesaReceiptNumber,
-    };
+    return this.mpesaService.handleCallback(payload);
   }
 
   async handleWebsiteEnquiry(leadPayload: {

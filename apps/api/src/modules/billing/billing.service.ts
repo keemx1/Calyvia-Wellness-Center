@@ -4,9 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { InvoiceStatus, PaymentMethod, KenyaUtils } from '@calyvia/shared';
+import { InvoiceStatus, PaymentMethod } from '@calyvia/shared';
 import { CommunicationService } from '../communication/communication.service';
 import { InvoicePdfService } from './invoice-pdf.service';
+import { MpesaService } from './mpesa.service';
+import { TriggerMpesaStkDto } from './dto/trigger-mpesa-stk.dto';
 
 export interface CreateInvoiceDto {
   patientId?: string;
@@ -30,12 +32,6 @@ export interface RecordPaymentDto {
   receivedBy: string;
 }
 
-export interface TriggerMpesaStkDto {
-  invoiceId: string;
-  phoneNumber: string;
-  amountKES: number;
-}
-
 const PROGRAM_RATES: Record<string, { label: string; amount: number; inpatient: boolean }> = {
   DETOX_ONLY: { label: 'Medical detox program', amount: 45000, inpatient: true },
   REHAB_30_DAYS: { label: '30-day residential rehabilitation', amount: 120000, inpatient: true },
@@ -53,6 +49,7 @@ export class BillingService {
     private prisma: PrismaService,
     private communication: CommunicationService,
     private pdf: InvoicePdfService,
+    private mpesa: MpesaService,
   ) {}
 
   private generateInvoiceNumber(): string {
@@ -288,16 +285,25 @@ export class BillingService {
   }
 
   async triggerDarajaStk(dto: TriggerMpesaStkDto) {
-    const normalizedPhone = KenyaUtils.normalizePhoneNumber(dto.phoneNumber);
-    const checkoutRequestId = `ws_CO_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const invoice = await this.getInvoiceOrThrow(dto.invoiceId);
+    const balance = Number(
+      this.invoiceValue(invoice, 'balanceKES', 'balance_due') ?? 0,
+    );
+    if (balance <= 0) {
+      throw new BadRequestException('This invoice has no outstanding balance.');
+    }
+    if (Number(dto.amountKES) > balance) {
+      throw new BadRequestException(
+        `Amount exceeds the invoice balance of KES ${balance.toLocaleString('en-KE')}.`,
+      );
+    }
 
-    return {
-      ResponseCode: '0',
-      ResponseDescription: 'Success. Request accepted for processing',
-      MerchantRequestID: `29103-${Date.now()}-1`,
-      CheckoutRequestID: checkoutRequestId,
-      CustomerMessage: `Success. STK Push prompt initiated. Prompt sent to ${normalizedPhone}. Please enter your M-Pesa PIN on your phone to complete payment of KES ${dto.amountKES}.`,
-    };
+    return this.mpesa.initiateStk({
+      invoiceId: invoice.id,
+      invoiceNumber: this.invoiceNumber(invoice),
+      phoneNumber: dto.phoneNumber,
+      amountKES: dto.amountKES,
+    });
   }
 
   private async getInvoiceOrThrow(id: string) {

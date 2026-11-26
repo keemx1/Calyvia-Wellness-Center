@@ -13,6 +13,7 @@ import {
   Receipt,
   RefreshCw,
   Send,
+  Smartphone,
   Trash2,
   Wand2,
   X,
@@ -93,6 +94,11 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
   });
 
   const [sendModal, setSendModal] = useState<{ invoice: any; recipient: string } | null>(null);
+  const [stkModal, setStkModal] = useState<{
+    invoice: any;
+    phoneNumber: string;
+    amountKES: string;
+  } | null>(null);
 
   const authHeaders = useMemo(
     () => ({ Authorization: `Bearer ${token || ''}` }),
@@ -325,6 +331,40 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
     }
   };
 
+  const handleTriggerStk = async () => {
+    if (!stkModal) return;
+    const amount = Number(stkModal.amountKES);
+    if (!stkModal.phoneNumber.trim() || !amount || amount <= 0) {
+      setNotice({ type: 'error', text: 'Enter a valid phone number and payment amount.' });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`${apiUrl}/billing/mpesa/stk-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          invoiceId: pick(stkModal.invoice, 'id'),
+          phoneNumber: stkModal.phoneNumber.trim(),
+          amountKES: amount,
+        }),
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, 'Could not send the STK push.'));
+      const data = await res.json();
+      setNotice({
+        type: 'success',
+        text: `STK Push sent to ${data.phoneNumber || stkModal.phoneNumber}. Ask the client to enter their M-Pesa PIN. The invoice will update automatically when payment is confirmed.`,
+      });
+      setStkModal(null);
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Could not send the STK push.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const tabButton = (id: Tab, label: string, Icon: React.ComponentType<{ className?: string }>) => (
     <button
       type="button"
@@ -478,6 +518,25 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
+                        {Number(pick(invoice, 'balanceKES', 'balance_due') ?? 0) > 0 && (
+                          <button
+                            type="button"
+                            title="Pay with M-Pesa (STK Push)"
+                            onClick={() =>
+                              setStkModal({
+                                invoice,
+                                phoneNumber: String(pick(invoice, 'billToPhone') ?? ''),
+                                amountKES: String(
+                                  Number(pick(invoice, 'balanceKES', 'balance_due') ?? 0),
+                                ),
+                              })
+                            }
+                            disabled={busy}
+                            className="p-2 rounded-lg border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-all disabled:opacity-60"
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           title="Download PDF"
@@ -835,6 +894,58 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
             >
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Send PDF
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-serif text-lg font-bold text-foreground">Pay with M-Pesa</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {pick(stkModal.invoice, 'invoiceNumber', 'invoice_number')} · balance{' '}
+                  {money(pick(stkModal.invoice, 'balanceKES', 'balance_due'))}
+                </p>
+              </div>
+              <button type="button" onClick={() => setStkModal(null)}>
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <label className="block text-xs">
+              <span className="block font-semibold text-foreground mb-1.5">Client M-Pesa number</span>
+              <input
+                autoFocus
+                value={stkModal.phoneNumber}
+                onChange={(e) => setStkModal({ ...stkModal, phoneNumber: e.target.value })}
+                placeholder="0712345678"
+                className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="block font-semibold text-foreground mb-1.5">Amount (KES)</span>
+              <input
+                type="number"
+                min="1"
+                value={stkModal.amountKES}
+                onChange={(e) => setStkModal({ ...stkModal, amountKES: e.target.value })}
+                className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
+              />
+            </label>
+            <p className="text-[10px] text-muted-foreground">
+              A real Safaricom STK prompt is sent to this phone. The invoice updates automatically
+              when the payment callback is received. Do not record the payment manually as well.
+            </p>
+            <button
+              type="button"
+              onClick={handleTriggerStk}
+              disabled={busy || !stkModal.phoneNumber.trim() || !Number(stkModal.amountKES)}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary-hover transition-all disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
+              Send STK Push
             </button>
           </div>
         </div>

@@ -3,12 +3,14 @@ import { BillingService, CreateInvoiceDto } from './billing.service';
 import { PrismaService } from '../../database/prisma.service';
 import { CommunicationService } from '../communication/communication.service';
 import { InvoicePdfService } from './invoice-pdf.service';
+import { MpesaService } from './mpesa.service';
 
 describe('BillingService (Invoicing Center)', () => {
   let service: BillingService;
   let mockPrisma: any;
   let mockCommunication: any;
   let mockPdf: any;
+  let mockMpesa: any;
 
   beforeEach(async () => {
     mockPrisma = {
@@ -30,6 +32,7 @@ describe('BillingService (Invoicing Center)', () => {
           invoiceNumber: 'INV-2026-0042',
           totalAmountKES: 117000,
           paidAmountKES: 0,
+          balanceKES: 117000,
           notes: 'Bill to: Jane Doe | Phone: 0703377395 | Source: MANUAL',
         }),
         update: jest.fn().mockImplementation((args) => Promise.resolve(args.data)),
@@ -74,6 +77,15 @@ describe('BillingService (Invoicing Center)', () => {
         fileName: 'Calyvia-INV-2026-0042.pdf',
       }),
     };
+    mockMpesa = {
+      initiateStk: jest.fn().mockResolvedValue({
+        ResponseCode: '0',
+        CheckoutRequestID: 'ws_CO_TEST',
+        MerchantRequestID: 'MR_TEST',
+        CustomerMessage: 'STK Push sent to 254712345678.',
+        status: 'PENDING_PIN_PROMPT',
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -81,6 +93,7 @@ describe('BillingService (Invoicing Center)', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CommunicationService, useValue: mockCommunication },
         { provide: InvoicePdfService, useValue: mockPdf },
+        { provide: MpesaService, useValue: mockMpesa },
       ],
     }).compile();
 
@@ -211,14 +224,31 @@ describe('BillingService (Invoicing Center)', () => {
     });
   });
 
-  it('should trigger M-Pesa STK Push handshake without failure', async () => {
+  it('delegates M-Pesa STK Push to the real Daraja service with the invoice number', async () => {
     const res = await service.triggerDarajaStk({
       invoiceId: 'inv-test-1',
-      phoneNumber: '+254712345678',
+      phoneNumber: '0703377395',
       amountKES: 45000,
     });
 
+    expect(mockMpesa.initiateStk).toHaveBeenCalledWith({
+      invoiceId: 'inv-test-1',
+      invoiceNumber: 'INV-2026-0042',
+      phoneNumber: '0703377395',
+      amountKES: 45000,
+    });
     expect(res.ResponseCode).toBe('0');
-    expect(res.CustomerMessage).toContain('STK Push prompt initiated');
+    expect(res.status).toBe('PENDING_PIN_PROMPT');
+  });
+
+  it('rejects an STK amount above the invoice balance', async () => {
+    await expect(
+      service.triggerDarajaStk({
+        invoiceId: 'inv-test-1',
+        phoneNumber: '0703377395',
+        amountKES: 200000,
+      }),
+    ).rejects.toThrow(/exceeds the invoice balance/);
+    expect(mockMpesa.initiateStk).not.toHaveBeenCalled();
   });
 });

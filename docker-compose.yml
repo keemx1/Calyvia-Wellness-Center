@@ -68,6 +68,14 @@ services:
       JWT_ACCESS_SECRET: "calyvia_jwt_access_super_secret_development_key_2026_xyz"
       JWT_REFRESH_SECRET: "calyvia_jwt_refresh_super_secret_development_key_2026_xyz"
       ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      MPESA_ENVIRONMENT: "${MPESA_ENVIRONMENT:-production}"
+      MPESA_CONSUMER_KEY: "${MPESA_CONSUMER_KEY:-}"
+      MPESA_CONSUMER_SECRET: "${MPESA_CONSUMER_SECRET:-}"
+      MPESA_SHORTCODE: "${MPESA_SHORTCODE:-}"
+      MPESA_PASSKEY: "${MPESA_PASSKEY:-}"
+      MPESA_CALLBACK_URL: "${MPESA_CALLBACK_URL:-https://api.calyviawellness.co.ke/api/v1/integrations/mpesa/callback}"
+      MPESA_TRANSACTION_TYPE: "${MPESA_TRANSACTION_TYPE:-CustomerPayBillOnline}"
+      MPESA_CALLBACK_ALLOWED_IPS: "${MPESA_CALLBACK_ALLOWED_IPS:-}"
       TZ: Africa/Nairobi
     ports:
       - "4000:4000"

@@ -1,12 +1,8 @@
 import { Controller, Get, Post, Delete, Body, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import {
-  BillingService,
-  CreateInvoiceDto,
-  RecordPaymentDto,
-  TriggerMpesaStkDto,
-} from './billing.service';
+import { BillingService, CreateInvoiceDto, RecordPaymentDto } from './billing.service';
+import { TriggerMpesaStkDto } from './dto/trigger-mpesa-stk.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
