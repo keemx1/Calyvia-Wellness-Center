@@ -68,7 +68,7 @@ export class AiInstitutionalToolsService {
     return {
       toolName: 'get_dashboard_summary',
       data: metrics,
-      summary: `Facility: ${metrics.facility.name} (${metrics.facility.status}). Bed Census: ${metrics.census.occupiedBeds}/${metrics.census.totalBeds} beds occupied (${metrics.census.occupancyRatePercentage}% occupancy). Active Detox: ${metrics.admissions.activeDetoxCases}. Therapy sessions today: ${metrics.clinical.therapySessionsToday} (8 completed, 6 pending). MTD Revenue: KES ${metrics.financials.mtdRevenueCollected.toLocaleString()}. Staff on duty: ${metrics.qualityAndSafety.staffOnDuty}.`,
+      summary: `Facility: ${metrics.facility.name} (${metrics.facility.status}). Bed Census: ${metrics.census.occupiedBeds}/${metrics.census.totalBeds} beds occupied (${metrics.census.occupancyRatePercentage}% occupancy). Active Detox: ${metrics.admissions.activeDetoxCases}. Therapy sessions today: ${metrics.clinical.therapySessionsToday} (${metrics.clinical.completedSessions} completed, ${metrics.clinical.pendingSessions} pending). MTD Revenue: KES ${metrics.financials.mtdRevenueCollected.toLocaleString()}. Active staff accounts: ${metrics.qualityAndSafety.staffOnDuty}.`,
     };
   }
 
@@ -96,21 +96,15 @@ export class AiInstitutionalToolsService {
       totalActiveInpatients: dash.census.occupiedBeds,
       totalCapacity: dash.census.totalBeds,
       occupancyRate: `${dash.census.occupancyRatePercentage}%`,
-      wardBreakdown: {
-        detoxWard: { occupied: dash.census.detoxWardOccupancy, capacity: 6 },
-        inpatientMale: { occupied: dash.census.inpatientMaleOccupancy, capacity: 16 },
-        inpatientFemale: { occupied: dash.census.inpatientFemaleOccupancy, capacity: 8 },
-        vipSuite: { occupied: dash.census.vipOccupancy, capacity: 2 },
-      },
-      intakePipeline: {
-        triagePending: dash.admissions.pendingIntakeLeads,
-      },
+      activeDetoxCases: dash.admissions.activeDetoxCases,
+      pendingIntakeLeads: dash.admissions.pendingIntakeLeads,
+      note: 'Ward-level capacities are not separately configured; totals are counted from active bed records.',
     };
 
     return {
       toolName: 'get_patient_statistics',
       data: stats,
-      summary: `Inpatient census is ${dash.census.occupiedBeds}/${dash.census.totalBeds} (${dash.census.occupancyRatePercentage}%). Detox Ward: ${dash.census.detoxWardOccupancy}/6.`,
+      summary: `Inpatient census is ${dash.census.occupiedBeds}/${dash.census.totalBeds} (${dash.census.occupancyRatePercentage}%). Active detox cases: ${dash.admissions.activeDetoxCases}.`,
     };
   }
 
@@ -160,11 +154,35 @@ export class AiInstitutionalToolsService {
    */
   getApplicationHelp(query?: string): ToolResult {
     let filtered = this.moduleCatalog;
-    if (query) {
-      const q = query.toLowerCase();
-      filtered = this.moduleCatalog.filter(
-        (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)
-      );
+    if (query?.trim()) {
+      const terms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .map((term) => term.replace(/[^a-z0-9]/g, ''))
+        .filter((term) => term.length > 1);
+
+      if (terms.length > 0) {
+        filtered = this.moduleCatalog
+          .map((module) => {
+            const haystack = [
+              module.code,
+              module.id,
+              module.name,
+              module.category,
+              module.description,
+            ]
+              .join(' ')
+              .toLowerCase();
+            const score = terms.reduce(
+              (total, term) => total + (haystack.includes(term) ? 1 : 0),
+              0,
+            );
+            return { module, score };
+          })
+          .filter(({ score }) => score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map(({ module }) => module);
+      }
     }
     return {
       toolName: 'get_application_help',

@@ -20,8 +20,12 @@ import {
   HelpCircle,
   Stethoscope,
 } from 'lucide-react';
-import { useTheme } from './ThemeProvider';
 import { useAuth } from './AuthContext';
+
+interface CalyviaAiAssistantProps {
+  /** Active admin module, sent to the API so answers can be context-aware. */
+  activeModule?: string;
+}
 
 interface Message {
   id: string;
@@ -31,15 +35,6 @@ interface Message {
   suggestedFollowUps?: string[];
   referencedModules?: string[];
 }
-
-const DEFAULT_SUGGESTED_PROMPTS = [
-  'Give me today\'s operational summary',
-  'What appointments are scheduled for today?',
-  'Summarize bed census & ward occupancy',
-  'Summarize outstanding invoices and billing',
-  'What is the CIWA-Ar alcohol detox protocol?',
-  'How do I register a patient in CRM?',
-];
 
 interface HeadsetIconProps extends React.SVGProps<SVGSVGElement> {}
 
@@ -68,7 +63,7 @@ export const PulseHeadsetIcon: React.FC<HeadsetIconProps> = ({ className, ...pro
   </svg>
 );
 
-export const CalyviaAiAssistant: React.FC = () => {
+export const CalyviaAiAssistant: React.FC<CalyviaAiAssistantProps> = ({ activeModule }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [inputMessage, setInputMessage] = useState<string>('');
@@ -76,10 +71,22 @@ export const CalyviaAiAssistant: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
-  const userGreetingName = user?.fullName ? user.fullName.split(' ')[0] : 'there';
+  const canViewBilling = [
+    'SUPER_ADMIN',
+    'FACILITY_ADMIN',
+    'MEDICAL_DIRECTOR',
+    'FINANCE_BILLING',
+    'MANAGEMENT_EXECUTIVE',
+  ].includes(String(user?.role || ''));
+
+  const initialSuggestions = [
+    'Give me today\'s operational summary',
+    'What appointments are scheduled for today?',
+    'Summarize bed census & ward occupancy',
+    ...(canViewBilling ? ['Summarize outstanding invoices and billing'] : []),
+  ];
 
   // Initial welcome greeting
   useEffect(() => {
@@ -88,17 +95,14 @@ export const CalyviaAiAssistant: React.FC = () => {
         {
           id: 'welcome-1',
           role: 'assistant',
-          content: `Hello **${user?.fullName || 'there'}** 👋\n\nI am **Calyvia AI**, your institutional management copilot. I am connected live to Calyvia Wellness Center's PostgreSQL database and operational workflows.\n\nI can help you monitor **bed census**, review **today's appointments**, inspect **Daraja M-Pesa billing**, check **high-acuity detox protocols (CIWA/COWS)**, and navigate all **28 system modules**.\n\n*How can I assist you with center operations today?*`,
+          content: `Hello **${user?.fullName || 'there'}** 👋\n\nI am **Calyvia AI**, your institutional copilot. I answer from live Calyvia operational data and will say when a figure is unavailable.\n\nI can help with **bed census**, **appointments**, ${canViewBilling ? '**billing**,' : ''} **detox protocols (CIWA/COWS)**, and navigating the **28 system modules**.\n\n*What would you like to review?*`,
           timestamp: new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }),
-          suggestedFollowUps: [
-            'Give me today\'s operational summary',
-            'What appointments are scheduled for today?',
-            'Summarize bed census & ward occupancy',
-          ],
+          suggestedFollowUps: initialSuggestions,
         },
       ]);
     }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, canViewBilling]);
 
   // Auto-scroll to bottom of conversation
   useEffect(() => {
@@ -140,6 +144,7 @@ export const CalyviaAiAssistant: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token || ''}`,
         },
         body: JSON.stringify({
           message: text,
@@ -147,6 +152,7 @@ export const CalyviaAiAssistant: React.FC = () => {
             role: m.role,
             content: m.content,
           })),
+          contextModule: activeModule,
         }),
       });
 
@@ -162,18 +168,20 @@ export const CalyviaAiAssistant: React.FC = () => {
         };
         setMessages((prev) => [...prev, aiMsg]);
       } else {
-        throw new Error('API request failed');
+        throw new Error(`API request failed (${res.status})`);
       }
-    } catch {
-      // Resilient local institutional intelligence engine (guarantees 100% uptime)
-      const localReply = generateLocalInstitutionalResponse(text);
+    } catch (err: any) {
+      // Never invent metrics when the grounded service is unavailable.
+      const isAuthError = String(err?.message || '').includes('401');
       const aiMsg: Message = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
-        content: localReply.content,
+        content: isAuthError
+          ? `Your session has expired. Please sign in again before asking Calyvia AI.`
+          : `I could not reach the live Calyvia data service, so I have not guessed any figures. Please retry in a moment.`,
         timestamp: new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }),
-        suggestedFollowUps: localReply.suggestedFollowUps,
-        referencedModules: localReply.referencedModules,
+        suggestedFollowUps: ['Retry: give me today\'s operational summary'],
+        referencedModules: [],
       };
       setMessages((prev) => [...prev, aiMsg]);
     } finally {
@@ -195,7 +203,7 @@ export const CalyviaAiAssistant: React.FC = () => {
         role: 'assistant',
         content: `Conversation reset. Ready for a new institutional query. What would you like to review?`,
         timestamp: new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }),
-        suggestedFollowUps: DEFAULT_SUGGESTED_PROMPTS.slice(0, 3),
+        suggestedFollowUps: initialSuggestions,
       },
     ]);
   };
@@ -232,7 +240,7 @@ export const CalyviaAiAssistant: React.FC = () => {
             return (
               <div key={idx} className="flex items-start space-x-1.5 pl-1">
                 <span className="text-primary font-bold">•</span>
-                <span dangerouslySetInnerHTML={{ __html: formatInline(raw) }} />
+                <span>{renderInline(raw)}</span>
               </div>
             );
           }
@@ -242,7 +250,7 @@ export const CalyviaAiAssistant: React.FC = () => {
             return (
               <div key={idx} className="flex items-start space-x-1.5 pl-1">
                 <span className="font-mono text-primary font-semibold">{line.match(/^\d+\./)?.[0]}</span>
-                <span dangerouslySetInnerHTML={{ __html: formatInline(line.replace(/^\d+\.\s/, '')) }} />
+                <span>{renderInline(line.replace(/^\d+\.\s/, ''))}</span>
               </div>
             );
           }
@@ -254,25 +262,45 @@ export const CalyviaAiAssistant: React.FC = () => {
             return (
               <div key={idx} className="grid grid-cols-4 gap-1 p-1 bg-surface-subtle rounded border border-border/60 text-[11px] font-mono">
                 {cells.map((c, i) => (
-                  <span key={i} className="truncate" dangerouslySetInnerHTML={{ __html: formatInline(c.trim()) }} />
+                  <span key={i} className="truncate">{renderInline(c.trim())}</span>
                 ))}
               </div>
             );
           }
 
           return (
-            <p key={idx} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
+            <p key={idx}>{renderInline(line)}</p>
           );
         })}
       </div>
     );
   };
 
-  const formatInline = (text: string): string => {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
-      .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-surface-subtle border border-border rounded text-[11px] font-mono text-primary">$1</code>');
-  };
+  // Render formatting as React nodes so model/tool text is never injected as HTML.
+  const renderInline = (text: string): React.ReactNode[] =>
+    text
+      .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+      .filter((token) => token.length > 0)
+      .map((token, idx) => {
+        if (token.startsWith('**') && token.endsWith('**')) {
+          return (
+            <strong key={idx} className="font-semibold text-foreground">
+              {token.slice(2, -2)}
+            </strong>
+          );
+        }
+        if (token.startsWith('`') && token.endsWith('`')) {
+          return (
+            <code
+              key={idx}
+              className="px-1 py-0.5 bg-surface-subtle border border-border rounded text-[11px] font-mono text-primary"
+            >
+              {token.slice(1, -1)}
+            </code>
+          );
+        }
+        return <React.Fragment key={idx}>{token}</React.Fragment>;
+      });
 
   return (
     <>
@@ -473,99 +501,3 @@ export const CalyviaAiAssistant: React.FC = () => {
     </>
   );
 };
-
-/**
- * Resilient fallback engine that directly handles questions using live Calyvia institutional metrics
- */
-function generateLocalInstitutionalResponse(query: string): {
-  content: string;
-  suggestedFollowUps: string[];
-  referencedModules: string[];
-} {
-  const q = query.toLowerCase();
-
-  // Clinical safety boundary
-  if (q.includes('prescribe') || (q.includes('diagnose') && !q.includes('protocol'))) {
-    return {
-      content: `⚠️ **Clinical Safety Boundary & Healthcare Policy**\n\nAs the Calyvia Institutional Management Assistant, I provide operational and administrative guidance.\n\n* **I cannot diagnose individual patients or prescribe medication regimens.**\n* All clinical treatment plans and taper dosages must be verified by licensed Calyvia physicians (**Dr. Evelyn Wanjiku** or **Dr. Antony Baraka**).\n\nFor medication administration schedules, please consult the **e-MAR Chart (Module 08: Pharmacy)**.`,
-      suggestedFollowUps: [
-        'What is the CIWA-Ar alcohol protocol?',
-        'Give me today\'s operational summary',
-        'Summarize today\'s appointments',
-      ],
-      referencedModules: ['clinical', 'detox', 'pharmacy'],
-    };
-  }
-
-  // Operational summary
-  if (q.includes('summary') || q.includes('operational') || q.includes('status')) {
-    return {
-      content: `### 🏥 Calyvia Wellness Center — Operational Summary\n\n**Facility Status:** OPERATIONAL (Mugutha, Ruiru, Kiambu County)\n\nLive metrics are retrieved dynamically from the database. When the system is initialized or tables are empty, record counts start at zero until real patient admissions and appointments are entered.`,
-      suggestedFollowUps: [
-        'What appointments are scheduled for today?',
-        'Summarize bed census & ward occupancy',
-        'Summarize outstanding invoices and billing',
-      ],
-      referencedModules: ['dashboard', 'detox', 'rooms', 'billing'],
-    };
-  }
-
-  // Appointments
-  if (q.includes('appointment') || q.includes('schedule') || q.includes('calendar')) {
-    return {
-      content: `### 📅 Clinical & Consultation Schedule\n\nConsultations, MDT reviews, and therapy sessions are tracked live. Use **Module 06 (Appointments & Calendar)** to view or schedule appointments for registered patients.`,
-      suggestedFollowUps: [
-        'How do I schedule a new appointment in Module 06?',
-        'Give me the staff workload for today',
-        'Show today\'s operational summary',
-      ],
-      referencedModules: ['appointments', 'counselling', 'clinical'],
-    };
-  }
-
-  // Census / Beds
-  if (q.includes('census') || q.includes('bed') || q.includes('occupancy') || q.includes('ward')) {
-    return {
-      content: `### 🛏️ Calyvia Inpatient Ward & Bed Census\n\nWard and room capacities are managed under **Module 09: Rooms & Bed Allocation**. Bed allocations update in real-time as patients are admitted through **Module 02 (CRM)**.`,
-      suggestedFollowUps: [
-        'How do I admit a patient in Module 02?',
-        'What is the CIWA-Ar protocol for detox?',
-        'Give me today\'s operational summary',
-      ],
-      referencedModules: ['rooms', 'detox', 'crm'],
-    };
-  }
-
-  // Billing
-  if (q.includes('billing') || q.includes('invoice') || q.includes('revenue') || q.includes('mpesa') || q.includes('m-pesa')) {
-    return {
-      content: `### 💳 Billing & Financial Management\n\nFinancial statements and invoices reflect actual payments recorded in the database. You can trigger live Safaricom Daraja M-Pesa STK push prompts for patient payments under **Module 07 (Billing & Daraja M-Pesa)**.`,
-      suggestedFollowUps: [
-        'How do I trigger an M-Pesa STK push?',
-        'Show today\'s operational summary',
-        'Summarize bed census',
-      ],
-      referencedModules: ['billing', 'reports'],
-    };
-  }
-
-  // Detox / CIWA
-  if (q.includes('detox') || q.includes('ciwa') || q.includes('cows') || q.includes('withdrawal')) {
-    return {
-      content: `### 🩺 Detoxification Protocols & Clinical Scoring\n\n#### 1. Alcohol CIWA-Ar Protocol:\n* 10 item clinical scale (0 - 67).\n* **Score < 10 (Mild):** Supportive nursing, hydration, vitals Q4H.\n* **Score 10 - 18 (Moderate):** Diazepam protocol (10mg-20mg per MAR), vitals Q2H.\n* **Score > 18 (Severe):** High Acuity, continuous pulse oximetry, doctor review Q1H.\n\n#### 2. Opioid COWS Protocol:\n* Evaluates pulse, pupil dilation, tremors, bone aches, and perspiration (0 - 48).\n\n*Calculators and charts are live under **Module 04: Detox (CIWA/COWS & Vitals)**.*`,
-      suggestedFollowUps: [
-        'Who is currently in Detox Ward?',
-        'What is the emergency transfer procedure?',
-        'Show today\'s operational summary',
-      ],
-      referencedModules: ['detox', 'pharmacy', 'clinical'],
-    };
-  }
-
-  // Navigation / Help
-  return {
-    content: `### 🧭 Calyvia Application Guidance\n\nCalyvia Wellness Center features **28 integrated modules** accessible from the left sidebar navigation:\n\n* **01 - 02:** Patient Registry & CRM Admissions Pipeline\n* **03 - 06:** Clinical Records, Detox CIWA/COWS, Counselling & Appointments\n* **07 - 09:** Billing (Daraja M-Pesa), Pharmacy e-MAR & Bed Allocation\n* **10 - 14:** Movement, Incidents, Staff Roster, Tasks & Inventory\n* **16 - 21:** Discharge, Aftercare, Family, Referrals, SMS & Feedback\n* **22 - 28:** Dashboard, Reports, Security, Admin, Webhooks & AI Copilot\n\nWhat specific task or operational question can I help you with?`,
-    suggestedFollowUps: DEFAULT_SUGGESTED_PROMPTS.slice(0, 3),
-    referencedModules: ['dashboard', 'crm', 'detox', 'billing'],
-  };
-}

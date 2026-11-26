@@ -1,22 +1,37 @@
-import { Controller, Post, Body, Req, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { AiExtensionService, AiSummarizationContract, AiFollowUpSuggestionContract } from './ai-extension.service';
+import {
+  Controller,
+  Post,
+  Body,
+  Req,
+  Get,
+  UseGuards,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  AiExtensionService,
+  AiSummarizationContract,
+  AiFollowUpSuggestionContract,
+} from './ai-extension.service';
 import { AiChatRequestDto, AiChatResponseDto } from './dto/ai-chat.dto';
-import { UserRole } from '@calyvia/shared';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @ApiTags('28. Calyvia AI Institutional Management Assistant')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('ai-extension')
 export class AiExtensionController {
   constructor(private readonly aiExtensionService: AiExtensionService) {}
 
   @Post('chat')
-  @ApiOperation({ summary: 'Process queries for the institutional management copilot with live data grounding' })
+  @ApiOperation({
+    summary: 'Process queries for the institutional management copilot with live data grounding',
+  })
   async chat(@Body() dto: AiChatRequestDto, @Req() req: any): Promise<AiChatResponseDto> {
-    const user = req.user || {
-      id: '00000000-0000-0000-0000-000000000001',
-      fullName: 'Dr. Antony Baraka',
-      role: UserRole.SUPER_ADMIN,
-    };
+    const user = req?.user;
+    if (!user?.id || !user?.role) {
+      throw new UnauthorizedException('A verified Calyvia session is required for AI assistance.');
+    }
     return this.aiExtensionService.processChat(dto, user);
   }
 
@@ -28,7 +43,8 @@ export class AiExtensionController {
       system: 'Calyvia Institutional Management Copilot',
       database: 'Supabase PostgreSQL Pooler Active',
       compliance: 'KDPA 2019 Compliant',
-      version: '1.0.0',
+      version: '1.1.0',
+      authentication: 'JWT required',
     };
   }
 

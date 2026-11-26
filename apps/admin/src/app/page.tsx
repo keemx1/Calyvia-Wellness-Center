@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import {
@@ -79,6 +80,12 @@ import { AutomationView } from '../components/AutomationView';
 import { BillingView } from '../components/BillingView';
 import { PatientDashboardView } from '../components/PatientDashboardView';
 import { BottomNav } from '../components/BottomNav';
+
+// Mounted only inside the authenticated shell (see the `if (!user)` guard below).
+const CalyviaAiAssistant = dynamic(
+  () => import('../components/CalyviaAiAssistant').then((mod) => mod.CalyviaAiAssistant),
+  { ssr: false },
+);
 
 const MODULE_TITLES: Record<string, string> = {
   dashboard: 'Management Dashboard',
@@ -3731,6 +3738,9 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Authenticated-only Calyvia AI copilot */}
+      <CalyviaAiAssistant activeModule={activeModule} />
 
       {/* Mobile & Tablet Persistent Bottom Navigation Bar */}
       <BottomNav

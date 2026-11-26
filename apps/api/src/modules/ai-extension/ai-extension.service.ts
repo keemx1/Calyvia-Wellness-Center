@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { AiInstitutionalToolsService } from './ai-institutional-tools.service';
 import { AuditService } from '../audit/audit.service';
 import { AiChatRequestDto, AiChatResponseDto } from './dto/ai-chat.dto';
@@ -16,6 +16,18 @@ export interface AiFollowUpSuggestionContract {
   counsellingEngagementScore: number;
 }
 
+const number = (value: any) => Number(value || 0).toLocaleString();
+
+const BILLING_ROLES = new Set<UserRole>([
+  UserRole.SUPER_ADMIN,
+  UserRole.FACILITY_ADMIN,
+  UserRole.MEDICAL_DIRECTOR,
+  UserRole.FINANCE_BILLING,
+  UserRole.MANAGEMENT_EXECUTIVE,
+]);
+
+const canViewBilling = (role: string) => BILLING_ROLES.has(role as UserRole);
+
 @Injectable()
 export class AiExtensionService {
   private readonly logger = new Logger(AiExtensionService.name);
@@ -27,31 +39,79 @@ export class AiExtensionService {
   ) {}
 
   /**
-   * Process incoming chat requests for the Calyvia Institutional Management Copilot
+   * Resolve short conversational follow-ups ("and appointments?", "what about beds?")
+   * into a full institutional query so the same grounded tool is used rather than
+   * guessing from the previous answer.
    */
+  private followUpTopic(message: string): string | null {
+    if (!/^(and|also|what about|how about|tell me more|show me|same|again)\b/.test(message)) {
+      return null;
+    }
+    const topics: Array<[RegExp, string]> = [
+      [/appointment|schedule|calendar|session/, 'What appointments are scheduled for today?'],
+      [/bed|census|ward|occupancy|room/, 'Summarize bed census and ward occupancy'],
+      [/bill|invoice|revenue|mpesa|m-pesa|payment|daraja/, 'Summarize outstanding invoices and billing'],
+      [/staff|doctor|nurse|therapist|roster/, 'Give me the staff workload for today'],
+      [/detox|ciwa|cows|withdrawal|alcohol|opioid/, 'What is the CIWA-Ar detox protocol?'],
+      [/summary|overview|status/, 'Give me today\'s operational summary'],
+    ];
+    return topics.find(([pattern]) => pattern.test(message))?.[1] || null;
+  }
+
+  private moduleLabel(contextModule?: string): string | null {
+    if (!contextModule) return null;
+    const catalog = (this.toolsService as any)?.moduleCatalog;
+    if (Array.isArray(catalog)) {
+      const match = catalog.find((module: any) => module.id === contextModule);
+      if (match) return `Module ${match.code}: ${match.name}`;
+    }
+    return contextModule.replace(/_/g, ' ');
+  }
+
+  private moduleSearchQuery(message: string): string {
+    return message
+      .replace(/\b(how|do|i|where|is|are|the|a|an|to|in|of|for|module|help|navigate|admit|register|please|can|you)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** Process chat requests with role-aware, live-data-grounded institutional answers. */
   async processChat(
     dto: AiChatRequestDto,
     user: { id?: string; role?: string; fullName?: string } = {},
   ): Promise<AiChatResponseDto> {
-    const userRole = user.role || UserRole.SUPER_ADMIN;
-    const userName = user.fullName || 'Dr. Antony Baraka';
-    const message = dto.message.trim();
+    // Identity always comes from the verified JWT. Never assume an administrator.
+    if (!user?.id || !user?.role) {
+      throw new UnauthorizedException('You must be signed in to use Calyvia AI.');
+    }
+
+    const userRole = user.role as UserRole;
+    const userName = user.fullName || 'there';
+    const originalMessage = dto.message.trim();
+    const lowerOriginal = originalMessage.toLowerCase();
+    const resolvedFollowUp = this.followUpTopic(lowerOriginal);
+    const message = resolvedFollowUp || originalMessage;
     const lowerMessage = message.toLowerCase();
+    const generatedAt = new Date().toISOString();
+    const contextLabel = this.moduleLabel(dto.contextModule);
+    const contextNote = contextLabel ? `\n\n_Context: you are viewing **${contextLabel}**._` : '';
 
     const toolsExecuted: string[] = [];
     const referencedModules: string[] = [];
     let reply = '';
     let suggestedFollowUps: string[] = [];
 
-    // Log the user's interaction in immutable audit trail without sensitive PII
+    if (resolvedFollowUp) toolsExecuted.push('conversation_context');
+
     try {
       await this.auditService.logAction({
-        userId: user.id || 'system-admin-user',
+        userId: user.id,
         role: userRole,
         action: 'AI_ASSISTANT_QUERY',
         resource: 'AI_COPILOT',
         diffJson: {
-          querySummary: message.substring(0, 100),
+          querySummary: originalMessage.substring(0, 100),
+          resolvedQuery: resolvedFollowUp || null,
           contextModule: dto.contextModule || 'global',
         },
       });
@@ -59,32 +119,51 @@ export class AiExtensionService {
       this.logger.warn('Audit logging for AI query skipped:', e);
     }
 
-    // 1. Clinical safety / diagnosis safeguard check
-    const isClinicalDiagnosisOrPrescribe =
-      (lowerMessage.includes('prescribe') || lowerMessage.includes('diagnose') || lowerMessage.includes('give medicine')) &&
-      !lowerMessage.includes('protocol') &&
-      !lowerMessage.includes('what is');
+    const meta = () => ({
+      modelUsed: 'calyvia-institutional-copilot-v1-grounded',
+      toolsExecuted,
+      roleAuthorized: userRole,
+      contextModule: dto.contextModule || null,
+      generatedAt,
+      groundedInLiveData: toolsExecuted.some((tool) =>
+        [
+          'get_dashboard_summary',
+          'get_appointments_summary',
+          'get_patient_statistics',
+          'get_billing_summary',
+          'get_staff_workload',
+        ].includes(tool),
+      ),
+    });
 
-    if (isClinicalDiagnosisOrPrescribe) {
+    // 1. Clinical safety boundary — never diagnose, prescribe or recommend doses.
+    const clinicalRequest =
+      /prescribe|diagnose|give medicine|recommend (a )?(dose|medication)|what (medicine|drug) should/i.test(
+        lowerMessage,
+      ) && !/protocol|what is|policy|module|guideline/i.test(lowerMessage);
+
+    if (clinicalRequest) {
       return {
         success: true,
-        reply: `⚠️ **Clinical Safety Boundary & Healthcare Policy**\n\nAs the Calyvia Institutional Management Assistant, I am strictly bounded by healthcare governance guidelines.\n\n* **I cannot diagnose individual patients or prescribe medications.**\n* All clinical treatment protocols, tapering regimens, and medical decisions must be made and verified by licensed Calyvia clinicians (**Dr. Evelyn Wanjiku** / Lead Psychiatrist or **Dr. Antony Baraka**).\n\nIf this relates to an inpatient medication schedule, please check the **e-MAR Chart (Module 08: Pharmacy)** or record an MDT consultation under **Module 03: Clinical Records**.\n\n*For immediate medical emergencies, refer to the Nairobi West Hospital Transfer MoU via hotline **+254 700 534 306**.*`,
+        reply:
+          `⚠️ **Clinical Safety Boundary & Healthcare Policy**\n\n` +
+          `* **I cannot diagnose individual patients, prescribe medications, or recommend doses.**\n` +
+          `* Treatment decisions and tapering regimens must be verified by a licensed Calyvia clinician.\n` +
+          `* For medication schedules, use the **e-MAR Chart (Module 08: Pharmacy)**; for clinical assessments, use **Module 03: Clinical Records**.\n\n` +
+          `*For emergencies, follow the institutional hospital-transfer protocol and call **+254 700 534 306**.*` +
+          contextNote,
         suggestedFollowUps: [
           'What is the CIWA-Ar alcohol protocol?',
           'What is the COWS opioid withdrawal protocol?',
           'Summarize today\'s appointments',
         ],
         referencedModules: ['clinical', 'detox', 'pharmacy'],
-        timestamp: new Date().toISOString(),
-        meta: {
-          modelUsed: 'calyvia-institutional-copilot-v1',
-          toolsExecuted: ['clinical_safety_guard'],
-          roleAuthorized: userRole,
-        },
+        timestamp: generatedAt,
+        meta: { ...meta(), toolsExecuted: ['clinical_safety_guard'] },
       };
     }
 
-    // 2. Operational Summary / Dashboard Request
+    // 2. Operational summary — live executive metrics only.
     if (
       lowerMessage.includes('summary') ||
       lowerMessage.includes('operational') ||
@@ -94,29 +173,29 @@ export class AiExtensionService {
     ) {
       toolsExecuted.push('get_dashboard_summary');
       referencedModules.push('dashboard', 'detox', 'rooms');
-      const dash = await this.toolsService.getDashboardSummary(userRole);
-      const metrics = dash.data;
+      const metrics = (await this.toolsService.getDashboardSummary(userRole)).data;
 
-      reply = `### 🏥 Calyvia Wellness Center — Operational Summary\n\n` +
-        `**Facility Status:** ${metrics.facility.status} (${metrics.facility.location})\n` +
+      reply =
+        `### 🏥 Calyvia Wellness Center — Operational Summary\n\n` +
+        `**Facility Status:** ${metrics.facility?.status || 'OPERATIONAL'} (${metrics.facility?.location || 'Ruiru, Kiambu County'})\n` +
         `**Reporting Period:** Today, ${new Date().toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\n` +
         `#### 🛏️ Bed Census & Ward Occupancy\n` +
-        `* **Total Occupancy:** **${metrics.census.occupiedBeds} / ${metrics.census.totalBeds} Beds** (${metrics.census.occupancyRatePercentage}%)\n` +
-        `* **Available Beds:** **${metrics.census.availableBeds} Beds**\n` +
-        `* **Active Medical Detox:** **${metrics.census.detoxWardOccupancy} Patients** on high-acuity withdrawal monitoring\n\n` +
-        `#### 🩺 Clinical & Patient Flow Activity\n` +
-        `* **Therapy & Consultations Today:** **${metrics.clinical.therapySessionsToday} Scheduled** (${metrics.clinical.completedSessions} Completed, ${metrics.clinical.pendingSessions} Pending)\n` +
-        `* **Staff on Record:** **${metrics.qualityAndSafety.staffOnDuty} Staff Members**\n\n` +
-        `#### 💡 Current Operational Status\n` +
-        `* Connected to live Supabase PostgreSQL database. Empty tables display zero counts.`;
+        `* **Occupancy:** **${metrics.census?.occupiedBeds || 0} / ${metrics.census?.totalBeds || 0} Beds** (${metrics.census?.occupancyRatePercentage || 0}%)\n` +
+        `* **Available Beds:** **${metrics.census?.availableBeds || 0}**\n` +
+        `* **Active Detox Cases:** **${metrics.admissions?.activeDetoxCases || 0}**\n\n` +
+        `#### 🩺 Clinical & Patient Flow\n` +
+        `* **Sessions Today:** **${metrics.clinical?.therapySessionsToday || 0}** (${metrics.clinical?.completedSessions || 0} completed, ${metrics.clinical?.pendingSessions || 0} pending)\n` +
+        `* **Active Staff Accounts:** **${metrics.qualityAndSafety?.staffOnDuty || 0}**\n` +
+        `* **Pending Intake Leads:** **${metrics.admissions?.pendingIntakeLeads || 0}**\n\n` +
+        `All figures above are read live from the operational database.`;
 
       suggestedFollowUps = [
         'What appointments are scheduled today?',
-        'Break down ward capacity by room',
-        'Summarize billing and Daraja M-Pesa revenue',
+        'Summarize bed census and ward occupancy',
+        ...(canViewBilling(userRole) ? ['Summarize billing and Daraja M-Pesa revenue'] : []),
       ];
     }
-    // 3. Appointments & Schedule Request
+    // 3. Appointments — live schedule rows.
     else if (
       lowerMessage.includes('appointment') ||
       lowerMessage.includes('schedule') ||
@@ -125,29 +204,34 @@ export class AiExtensionService {
     ) {
       toolsExecuted.push('get_appointments_summary');
       referencedModules.push('appointments', 'clinical', 'counselling');
-      const apptResult = await this.toolsService.getAppointmentsSummary(userRole);
-      const appts = apptResult.data;
+      const appts = (await this.toolsService.getAppointmentsSummary(userRole)).data;
 
-      if (!appts || appts.length === 0) {
-        reply = `### 📅 Today's Clinical & Consultation Schedule\n\n` +
-          `No clinical appointments or therapy sessions are scheduled for today.\n\n` +
-          `You can schedule new patient appointments directly in **Module 06: Appointments & Calendar**.`;
+      if (!Array.isArray(appts) || appts.length === 0) {
+        reply =
+          `### 📅 Upcoming Clinical & Consultation Schedule\n\n` +
+          `No upcoming appointments are currently on record. You can schedule one under **Module 06: Appointments & Calendar**.`;
       } else {
-        reply = `### 📅 Today's Clinical & Consultation Schedule\n\n` +
-          `Here is the active schedule for today across Calyvia clinical and counselling suites:\n\n` +
-          `| Time | Patient / Subject | Clinician | Type | Status |\n` +
+        reply =
+          `### 📅 Clinical & Consultation Schedule\n\n` +
+          `| Time | Subject | Clinician | Type | Status |\n` +
           `| :--- | :--- | :--- | :--- | :--- |\n` +
-          appts.map((a: any) => `| **${a.time || (a.startTime ? new Date(a.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—')}** | ${a.title} | ${a.staffMemberName || a.doctor || 'Clinician'} | ${a.appointmentType || 'Consultation'} | ${a.status || 'SCHEDULED'} |`).join('\n') +
-          `\n\n**Summary:** ${appts.length} session${appts.length === 1 ? '' : 's'} recorded.`;
+          appts
+            .slice(0, 15)
+            .map(
+              (a: any) =>
+                `| **${a.time || (a.startTime ? new Date(a.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—')}** | ${a.title || 'Consultation'} | ${a.staffMemberName || a.doctor || 'Unassigned'} | ${a.appointmentType || 'CONSULTATION'} | ${a.status || 'SCHEDULED'} |`,
+            )
+            .join('\n') +
+          `\n\n**Recorded appointments:** ${appts.length}${appts.length > 15 ? ' (showing the first 15)' : ''}.`;
       }
 
       suggestedFollowUps = [
-        'How do I schedule a new appointment in Module 06?',
+        'How do I schedule a new appointment?',
         'Give me the staff workload for today',
-        'Summarize the active detox cases',
+        'Show today\'s operational summary',
       ];
     }
-    // 4. Inpatient Census & Bed Allocation Request
+    // 4. Census — totals from live bed records, no invented ward capacities.
     else if (
       lowerMessage.includes('census') ||
       lowerMessage.includes('bed') ||
@@ -156,15 +240,16 @@ export class AiExtensionService {
       lowerMessage.includes('occupancy')
     ) {
       toolsExecuted.push('get_patient_statistics');
-      referencedModules.push('rooms', 'detox', 'patients');
-      const patientStats = await this.toolsService.getPatientStatistics(userRole);
-      const data = patientStats.data;
+      referencedModules.push('rooms', 'patients', 'detox');
+      const stats = (await this.toolsService.getPatientStatistics(userRole)).data;
 
-      reply = `### 🛏️ Calyvia Inpatient Ward & Bed Census\n\n` +
-        `**Current Facility Occupancy:** **${data.totalActiveInpatients} / ${data.totalCapacity} Beds (${data.occupancyRate})**\n\n` +
-        `* **Detox Ward Occupancy:** ${data.wardBreakdown.detoxWard.occupied} / ${data.wardBreakdown.detoxWard.capacity} Beds\n` +
-        `* **Available Beds:** ${Math.max(0, data.totalCapacity - data.totalActiveInpatients)} Beds available for admission\n\n` +
-        `**Operational Note:** Real-time ward census dynamically queried from Supabase room and bed allocations.`;
+      reply =
+        `### 🛏️ Calyvia Inpatient Bed Census\n\n` +
+        `* **Occupied Beds:** **${stats.totalActiveInpatients || 0} / ${stats.totalCapacity || 0}** (${stats.occupancyRate || '0%'})\n` +
+        `* **Available Beds:** **${Math.max(0, Number(stats.totalCapacity || 0) - Number(stats.totalActiveInpatients || 0))}**\n` +
+        `* **Active Detox Cases:** **${stats.activeDetoxCases || 0}**\n` +
+        `* **Pending Intake Leads:** **${stats.pendingIntakeLeads || 0}**\n\n` +
+        `Bed totals are counted from active bed records under **Module 09: Rooms & Bed Allocation**.`;
 
       suggestedFollowUps = [
         'How do I allocate a bed in Module 09?',
@@ -172,7 +257,7 @@ export class AiExtensionService {
         'Show today\'s operational summary',
       ];
     }
-    // 5. Billing, Finance & M-Pesa Request
+    // 5. Billing — role-checked by the tool, figures from recorded payments.
     else if (
       lowerMessage.includes('billing') ||
       lowerMessage.includes('invoice') ||
@@ -186,28 +271,26 @@ export class AiExtensionService {
       referencedModules.push('billing', 'reports');
       const billingRes = await this.toolsService.getBillingSummary(userRole);
 
-      if (billingRes.data.restricted) {
+      if (billingRes.data?.restricted) {
         reply = `🔒 **Access Notice:** ${billingRes.summary}`;
       } else {
         const b = billingRes.data;
-        reply = `### 💳 Billing & Financial Performance (MTD)\n\n` +
-          `* **Month-to-Date Revenue Collected:** **KES ${b.mtdRevenueCollectedKES.toLocaleString()}**\n` +
-          `* **Outstanding Receivables:** **KES ${b.outstandingBalancesKES.toLocaleString()}**\n` +
-          `* **Daraja M-Pesa Volume Share:** **${b.darajaMpesaShare}**\n` +
-          `* **Bank Transfer Volume Share:** **${b.bankTransferShare}**\n\n` +
-          `#### 📱 Daraja M-Pesa Integration Status\n` +
-          `* STK Push Gateway: **Active & Responding**\n` +
-          `* Paybill / Till handshakes: Operational under Safaricom sandbox/production API.\n` +
-          `* You can test or issue an instant M-Pesa STK push for rehab deposits directly from **Module 07 (Billing & Daraja M-Pesa)**.`;
+        reply =
+          `### 💳 Billing & Financial Performance (MTD)\n\n` +
+          `* **Revenue Collected:** **KES ${number(b.mtdRevenueCollectedKES)}**\n` +
+          `* **Outstanding Receivables:** **KES ${number(b.outstandingBalancesKES)}**\n` +
+          `* **M-Pesa Volume Share:** **${b.darajaMpesaShare || '0%'}**\n` +
+          `* **Bank Transfer Share:** **${b.bankTransferShare || '0%'}**\n\n` +
+          `These totals are computed from payments and invoices recorded in the system. STK Push prompts are issued from **Module 07: Billing & Daraja M-Pesa**.`;
       }
 
       suggestedFollowUps = [
-        'How do I trigger an M-Pesa STK push?',
+        ...(canViewBilling(userRole) ? ['How do I trigger an M-Pesa STK push?'] : []),
         'Give me the full operational summary',
-        'Summarize outstanding tasks',
+        'Summarize bed census',
       ];
     }
-    // 6. Detox Protocols (CIWA-Ar & COWS)
+    // 6. Detox protocols — from the institutional protocol catalog.
     else if (
       lowerMessage.includes('detox') ||
       lowerMessage.includes('ciwa') ||
@@ -218,27 +301,33 @@ export class AiExtensionService {
     ) {
       toolsExecuted.push('get_institutional_protocols');
       referencedModules.push('detox', 'clinical', 'pharmacy');
-      await this.toolsService.getInstitutionalProtocols();
+      const protocols = (await this.toolsService.getInstitutionalProtocols()).data || {};
 
-      reply = `### 🩺 Calyvia Detoxification & Withdrawal Protocols\n\n` +
-        `#### 1. Alcohol Withdrawal — CIWA-Ar Protocol\n` +
-        `* **Scale:** 10 Clinical Institute Withdrawal Assessment items (0 - 67 max score).\n` +
-        `* **Mild (< 10):** Supportive nursing, hydration, vitals checked Q4H.\n` +
-        `* **Moderate (10 - 18):** Diazepam protocol (10mg-20mg titrated per MAR), vitals checked Q2H.\n` +
-        `* **Severe (> 18):** High Acuity, continuous cardiac & pulse ox monitoring, physician bedside review Q1H.\n` +
-        `* **Critical Escalation:** In case of delirium tremens (DTs) or seizures, notify Dr. Evelyn Wanjiku immediately and initiate ambulance standby for Nairobi West Hospital.\n\n` +
-        `#### 2. Opioid Withdrawal — COWS Protocol\n` +
-        `* **Scale:** Clinical Opiate Withdrawal Scale (0 - 48).\n` +
-        `* Evaluates resting pulse, sweating, restlessness, pupil size, bone aches, and GI disturbance.\n` +
-        `* Protocol available under **Module 04: Detox (CIWA/COWS & Vitals)** with automatic scoring calculators.`;
+      const ciwa = protocols.alcoholDetoxCIWA || {};
+      const cows = protocols.opioidDetoxCOWS || {};
+      const transfer = protocols.emergencyHospitalMoU || {};
+
+      reply =
+        `### 🩺 Calyvia Detoxification & Withdrawal Protocols\n\n` +
+        `#### 1. ${ciwa.title || 'CIWA-Ar Alcohol Withdrawal Protocol'}\n` +
+        `* **Scale:** ${ciwa.scaleRange || '0 - 67'}\n` +
+        `* **Thresholds:** ${ciwa.thresholds || 'Score-based assessment per institutional policy.'}\n` +
+        `* **Escalation:** ${ciwa.emergencyAction || 'Escalate to the medical director per the transfer protocol.'}\n\n` +
+        `#### 2. ${cows.title || 'COWS Opioid Withdrawal Protocol'}\n` +
+        `* **Scale:** ${cows.scaleRange || '0 - 48'}\n` +
+        `* **Assessment:** ${cows.guidelines || 'Score-guided symptomatic management under clinician supervision.'}\n\n` +
+        `#### 3. Emergency Transfer\n` +
+        `* **Partner:** ${transfer.partnerHospital || 'Nairobi West Hospital'}\n` +
+        `* **Hotline:** ${transfer.ambulanceHotline || '+254 700 534 306'}\n\n` +
+        `Scoring calculators and vitals charts are available under **Module 04: Detox (CIWA/COWS & Vitals)**. Medication decisions remain with licensed clinicians.`;
 
       suggestedFollowUps = [
         'What patients are in Detox Ward currently?',
         'Who is the doctor in charge of detox today?',
-        'Summarize the hospital transfer procedure',
+        'Show today\'s operational summary',
       ];
     }
-    // 7. Staff & Roster Request
+    // 7. Staff — live directory instead of a hardcoded roster.
     else if (
       lowerMessage.includes('staff') ||
       lowerMessage.includes('doctor') ||
@@ -249,26 +338,35 @@ export class AiExtensionService {
     ) {
       toolsExecuted.push('get_staff_workload');
       referencedModules.push('staff', 'clinical');
-      await this.toolsService.getStaffWorkload(userRole);
+      const staffResult = await this.toolsService.getStaffWorkload(userRole);
+      const staff = Array.isArray(staffResult.data) ? staffResult.data : [];
+      const active = staff.filter((member: any) => member.isActive !== false);
 
-      reply = `### 👥 Staff Directory & Active Duty Roster\n\n` +
-        `**14 Active Staff Members** on shift today in Ruiru center:\n\n` +
-        `* **Dr. Evelyn Wanjiku** — Medical Director & Lead Addiction Psychiatrist (Licence: KMPDC-P5519)\n` +
-        `* **Dr. Antony Baraka** — Consulting Physician & Clinical Administrator\n` +
-        `* **Dr. David Mwangi** — Clinical Medical Officer (Inpatient rounds)\n` +
-        `* **Nurse Faith Wangari** — Senior Detox Nurse in Charge (NCK-RN-28410)\n` +
-        `* **Nurse Beatrice Nyambura** — General Inpatient Staff Nurse\n` +
-        `* **Counsellor David Kilonzo** — Lead Addiction Therapist & Relapse Prevention Specialist\n` +
-        `* **Grace Muthoni** — Admissions Coordinator & Front Office\n\n` +
-        `All medical and nursing practice licenses are verified and compliant under Kenya Medical Practitioners and Dentists Council (KMPDC) and Nursing Council of Kenya (NCK).`;
+      const roster = active
+        .slice(0, 8)
+        .map((member: any) => {
+          const role = String(member.role || 'STAFF').replace(/_/g, ' ').toLowerCase();
+          const title = member.staffProfile?.jobTitle ? ` — ${member.staffProfile.jobTitle}` : '';
+          const licence = member.staffProfile?.licenseNumber
+            ? ` (Licence ${member.staffProfile.licenseNumber})`
+            : '';
+          return `* **${member.fullName || member.email || 'Staff member'}** — ${role}${title}${licence}`;
+        })
+        .join('\n');
+
+      reply =
+        `### 👥 Staff Directory\n\n` +
+        `**${active.length} active staff member${active.length === 1 ? '' : 's'} on record.**\n\n` +
+        `${roster || '*No active staff records found.*'}\n\n` +
+        `This roster is read live from **Module 12: Staff & Licence Roster**; duty shifts should be confirmed there.`;
 
       suggestedFollowUps = [
         'Show today\'s appointment schedule',
-        'What is the staff-to-patient ratio in Detox?',
         'Give me the operational summary',
+        'How do I add a staff account?',
       ];
     }
-    // 8. Application Navigation & Module Help
+    // 8. Navigation — module catalog search instead of invented examples.
     else if (
       lowerMessage.includes('how do i') ||
       lowerMessage.includes('where is') ||
@@ -280,65 +378,67 @@ export class AiExtensionService {
     ) {
       toolsExecuted.push('get_application_help');
       referencedModules.push('crm', 'patients', 'billing', 'appointments');
+      const help = this.toolsService.getApplicationHelp(this.moduleSearchQuery(originalMessage));
+      const modules = Array.isArray(help.data) ? help.data.slice(0, 6) : [];
 
-      reply = `### 🧭 Calyvia Application Guidance & Workflows\n\n` +
-        `Here are the most common administrative procedures in the Calyvia platform:\n\n` +
-        `1. **Admitting a New Patient:**\n` +
-        `   * Go to **Module 02 (CRM & Admissions Pipeline)** or click **"Register Patient"** in the top header.\n` +
-        `   * Complete the triage assessment and capture next-of-kin contacts.\n` +
-        `   * Once approved, assign an inpatient bed under **Module 09 (Rooms & Bed Allocation)**.\n\n` +
-        `2. **Recording Detox Vitals & Scores:**\n` +
-        `   * Open **Module 04 (Detox CIWA/COWS)**.\n` +
-        `   * Select the patient (e.g. John Kamau), score the 10 CIWA symptoms, and record BP, HR, and SpO2.\n\n` +
-        `3. **Collecting Fees via Safaricom M-Pesa:**\n` +
-        `   * Navigate to **Module 07 (Billing & Daraja M-Pesa)**.\n` +
-        `   * Enter the patient's phone number and KES amount, then click **"Send M-Pesa Prompt"** to trigger an STK push.\n\n` +
-        `4. **Scheduling Appointments:**\n` +
-        `   * Open **Module 06 (Appointments & Calendar)** or click **"New Appointment"** at the top right.\n\n` +
-        `*You can navigate directly to any of the 28 modules via the left sidebar.*`;
+      reply =
+        `### 🧭 Calyvia Application Guidance\n\n` +
+        (modules.length
+          ? modules
+              .map(
+                (module: any) =>
+                  `* **Module ${module.code}: ${module.name}** — ${module.description}`,
+              )
+              .join('\n')
+          : `* No exact module match found. All 28 modules are listed in the left sidebar.*`) +
+        `\n\nTell me the task you want to perform and I will point you to the right module.`;
 
       suggestedFollowUps = [
         'Show me today\'s operational summary',
         'What is our current bed occupancy?',
-        'Summarize billing metrics',
+        ...(canViewBilling(userRole) ? ['Summarize billing metrics'] : []),
       ];
     }
-    // 9. General / Conversational fallback with grounded intelligence
+    // 9. General fallback — grounded snapshot with no fabricated figures.
     else {
       toolsExecuted.push('get_dashboard_summary');
       referencedModules.push('dashboard');
-      const dash = await this.toolsService.getDashboardSummary(userRole);
-      const metrics = dash.data;
+      const metrics = (await this.toolsService.getDashboardSummary(userRole)).data;
 
-      reply = `Hello ${userName}.\n\n` +
-        `I am your **Calyvia Institutional Management Assistant**, connected directly to Calyvia Wellness Center's live PostgreSQL and Supabase environment.\n\n` +
+      const snapshot = [
+        `* **Bed Census:** ${metrics.census?.occupiedBeds || 0}/${metrics.census?.totalBeds || 0} Beds Occupied (${metrics.census?.occupancyRatePercentage || 0}%)`,
+        `* **Active Detox Cases:** ${metrics.census?.detoxWardOccupancy || metrics.admissions?.activeDetoxCases || 0}`,
+        `* **Sessions Today:** ${metrics.clinical?.therapySessionsToday || 0} (${metrics.clinical?.completedSessions || 0} completed)`,
+        ...(canViewBilling(userRole)
+          ? [`* **MTD Revenue:** KES ${number(metrics.financials?.mtdRevenueCollected)}`]
+          : []),
+        `* **Active Staff Accounts:** ${metrics.qualityAndSafety?.staffOnDuty || 0}`,
+      ];
+
+      reply =
+        `Hello ${userName}.\n\n` +
+        `I am your **Calyvia Institutional Management Assistant**, grounded in live operational data.\n\n` +
         `**Quick Center Snapshot:**\n` +
-        `* **Bed Census:** ${metrics.census.occupiedBeds}/${metrics.census.totalBeds} Beds Occupied (${metrics.census.occupancyRatePercentage}%)\n` +
-        `* **Active Detox Cases:** ${metrics.census.detoxWardOccupancy} Patients on protocol\n` +
-        `* **Appointments Today:** ${metrics.clinical.therapySessionsToday} Scheduled (8 completed)\n` +
-        `* **MTD Revenue:** KES ${metrics.financials.mtdRevenueCollected.toLocaleString()}\n` +
-        `* **Staff on Duty:** ${metrics.qualityAndSafety.staffOnDuty} Active staff\n\n` +
-        `How would you like me to help? I can provide detailed reports on bed census, clinical schedules, billing, staff workload, institutional protocols, or guide you through any of our 28 application modules.`;
+        `${snapshot.join('\n')}\n\n` +
+        `Ask me about census, appointments${canViewBilling(userRole) ? ', billing' : ''}, staff, detox protocols, or how to use a specific module.`;
 
       suggestedFollowUps = [
         'Give me today\'s operational summary',
         'What appointments are scheduled for today?',
         'Summarize bed census and ward occupancy',
-        'Summarize outstanding invoices and billing',
+        ...(canViewBilling(userRole) ? ['Summarize outstanding invoices and billing'] : []),
       ];
     }
+
+    reply += contextNote;
 
     return {
       success: true,
       reply,
       suggestedFollowUps,
       referencedModules,
-      timestamp: new Date().toISOString(),
-      meta: {
-        modelUsed: 'calyvia-institutional-copilot-v1',
-        toolsExecuted,
-        roleAuthorized: userRole,
-      },
+      timestamp: generatedAt,
+      meta: meta(),
     };
   }
 
