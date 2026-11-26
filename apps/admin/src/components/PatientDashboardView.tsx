@@ -230,6 +230,8 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
           billToName: name,
           billToPhone:
             pick(guardian, 'phone') || pick(guardian, 'alternativePhone') || pick(patient, 'phone') || undefined,
+          whatsappNumber:
+            pick(guardian, 'alternativePhone') || pick(guardian, 'phone') || undefined,
           items: [
             {
               description: invoiceForm.description.trim() || 'Treatment service',

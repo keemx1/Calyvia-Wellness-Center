@@ -13,6 +13,7 @@ import {
 } from '@calyvia/shared';
 import { PrismaService } from '../../database/prisma.service';
 import { CommunicationService } from '../communication/communication.service';
+import { InvoicePdfService } from './invoice-pdf.service';
 
 export interface MpesaStkInput {
   invoiceId: string;
@@ -31,6 +32,16 @@ export interface MpesaStkResult {
   amountKES: number;
   phoneNumber: string;
 }
+
+type MpesaPaymentContext = {
+  invoiceId: string;
+  invoiceNumber: string;
+  amountKES: number;
+  balanceKES: number;
+  notes: any;
+  patientId: string | null;
+  phone: string;
+};
 
 type MpesaLedgerOutcome =
   | { duplicate: true }
@@ -69,6 +80,7 @@ export class MpesaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communication: CommunicationService,
+    private readonly pdf: InvoicePdfService,
   ) {}
 
   private getConfig(): MpesaConfig {
@@ -567,7 +579,10 @@ export class MpesaService {
       return { ResultCode: 0, ResultDesc: 'Payment already recorded', alreadyProcessed: true, receipt };
     }
 
-    await this.sendPaymentReceipt(outcome);
+    await Promise.allSettled([
+      this.sendPaymentReceipt(outcome),
+      this.sendPaidInvoicePdf(outcome),
+    ]);
 
     return {
       ResultCode: 0,
@@ -579,15 +594,7 @@ export class MpesaService {
     };
   }
 
-  private async sendPaymentReceipt(context: {
-    invoiceId: string;
-    invoiceNumber: string;
-    amountKES: number;
-    balanceKES: number;
-    notes: any;
-    patientId: string | null;
-    phone: string;
-  }) {
+  private async sendPaymentReceipt(context: MpesaPaymentContext) {
     try {
       const patient = context.patientId && this.prisma.patient?.findUnique
         ? await this.prisma.patient.findUnique({ where: { id: context.patientId } })
@@ -615,6 +622,91 @@ export class MpesaService {
       // The payment is already committed; a messaging failure must not make
       // Safaricom retry the callback and create a duplicate payment.
       this.logger.warn(`M-Pesa receipt message was not delivered: ${err?.message || 'unknown error'}`);
+    }
+  }
+
+  private async resolveWhatsappRecipient(
+    context: MpesaPaymentContext,
+    patient: any,
+  ): Promise<string> {
+    const noteWhatsapp =
+      this.noteValue(context.notes, 'WhatsApp') ||
+      this.noteValue(context.notes, 'Whatsapp');
+    if (noteWhatsapp) return noteWhatsapp;
+
+    if (context.patientId && this.prisma.emergencyContact?.findMany) {
+      const guardians = await this.prisma.emergencyContact.findMany({
+        where: { patientId: context.patientId, relationship: 'GUARDIAN' },
+      });
+      const guardianWhatsapp = this.invoiceValue(
+        (guardians ?? []).find((entry: any) =>
+          this.invoiceValue(entry, 'alternativePhone', 'alternative_phone'),
+        ),
+        'alternativePhone',
+        'alternative_phone',
+      );
+      if (guardianWhatsapp) return String(guardianWhatsapp);
+    }
+
+    const notePhone = this.noteValue(context.notes, 'Phone');
+    if (notePhone) return notePhone;
+
+    const patientPhone = this.invoiceValue(patient, 'phone');
+    if (patientPhone) return String(patientPhone);
+
+    return context.phone || '';
+  }
+
+  /** Sends the paid invoice PDF to the WhatsApp number attached to the invoice. */
+  private async sendPaidInvoicePdf(context: MpesaPaymentContext) {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: context.invoiceId },
+      });
+      if (!invoice) {
+        this.logger.warn(
+          `Skipped paid-invoice PDF for ${context.invoiceNumber}: invoice no longer exists.`,
+        );
+        return;
+      }
+
+      const items = this.prisma.invoiceItem?.findMany
+        ? await this.prisma.invoiceItem.findMany({ where: { invoiceId: context.invoiceId } })
+        : [];
+      const payments = this.prisma.payment?.findMany
+        ? await this.prisma.payment.findMany({ where: { invoiceId: context.invoiceId } })
+        : [];
+      const patient = context.patientId && this.prisma.patient?.findUnique
+        ? await this.prisma.patient.findUnique({ where: { id: context.patientId } })
+        : null;
+
+      const recipient = await this.resolveWhatsappRecipient(context, patient);
+      if (!recipient) {
+        this.logger.warn(
+          `Skipped paid-invoice PDF for ${context.invoiceNumber}: no WhatsApp recipient on file.`,
+        );
+        return;
+      }
+
+      const { bytes, fileName } = await this.pdf.generate({
+        invoice,
+        items,
+        payments,
+        patient,
+      });
+      await this.communication.sendWhatsAppDocument({
+        recipient,
+        buffer: Buffer.from(bytes),
+        fileName,
+        caption: `Calyvia Wellness Center: invoice ${context.invoiceNumber} paid ${this.formatKes(context.amountKES)}. Balance ${this.formatKes(context.balanceKES)}. Updated PDF attached.`,
+        recipientType: 'PATIENT',
+      });
+    } catch (err: any) {
+      // Already committed: never let a WhatsApp delivery failure trigger a
+      // Safaricom retry that could duplicate the payment.
+      this.logger.warn(
+        `M-Pesa paid-invoice PDF was not delivered: ${err?.message || 'unknown error'}`,
+      );
     }
   }
 }

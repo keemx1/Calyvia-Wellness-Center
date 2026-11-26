@@ -61,8 +61,9 @@ describe('MpesaService (Daraja STK Push)', () => {
     const prisma: any = {
       mpesaTransaction: { create: jest.fn().mockResolvedValue({}) },
     };
-    const communication: any = { sendMessage: jest.fn() };
-    const service = new MpesaService(prisma, communication);
+    const communication: any = { sendMessage: jest.fn(), sendWhatsAppDocument: jest.fn() };
+    const pdf: any = { generate: jest.fn() };
+    const service = new MpesaService(prisma, communication, pdf);
 
     const result = await service.initiateStk({
       invoiceId: 'inv-1',
@@ -135,7 +136,8 @@ describe('MpesaService (Daraja STK Push)', () => {
       totalAmountKES: 1000,
       paidAmountKES: 0,
       balanceKES: 1000,
-      notes: 'Bill to: Jane Doe | Phone: 0703377395 | Source: MANUAL',
+      notes:
+        'Bill to: Jane Doe | Phone: 0703377395 | WhatsApp: 0723456789 | Source: MANUAL',
     };
     const tx: any = {
       mpesaTransaction: {
@@ -153,11 +155,20 @@ describe('MpesaService (Daraja STK Push)', () => {
     const prisma: any = {
       ...tx,
       mpesaTransaction: { ...tx.mpesaTransaction, create: jest.fn() },
+      invoiceItem: { findMany: jest.fn().mockResolvedValue([]) },
+      payment: { ...tx.payment, findMany: jest.fn().mockResolvedValue([]) },
     };
     const communication: any = {
       sendMessage: jest.fn().mockResolvedValue({ id: 'log-1', status: 'SENT' }),
+      sendWhatsAppDocument: jest.fn().mockResolvedValue({ id: 'log-2', status: 'SENT' }),
     };
-    const service = new MpesaService(prisma, communication);
+    const pdf: any = {
+      generate: jest.fn().mockResolvedValue({
+        bytes: new Uint8Array([37, 80, 68, 70]),
+        fileName: 'Calyvia-INV-2026-0042.pdf',
+      }),
+    };
+    const service = new MpesaService(prisma, communication, pdf);
 
     const result = await service.handleCallback({
       Body: {
@@ -213,11 +224,56 @@ describe('MpesaService (Daraja STK Push)', () => {
         }),
       }),
     );
+    expect(pdf.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invoice: expect.objectContaining({ id: 'inv-1' }),
+      }),
+    );
+    expect(communication.sendWhatsAppDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: '0723456789',
+        fileName: 'Calyvia-INV-2026-0042.pdf',
+        recipientType: 'PATIENT',
+      }),
+    );
     expect(result).toMatchObject({
       ResultCode: 0,
       receipt: 'NLJ7RT61SV',
       paymentId: 'pay-1',
     });
+  });
+
+  it('falls back to the guardian WhatsApp number, then the invoice phone', async () => {
+    const guardianPrisma: any = {
+      emergencyContact: {
+        findMany: jest.fn().mockResolvedValue([
+          { phone: '0703377395', alternativePhone: '+254723456789' },
+        ]),
+      },
+    };
+    const service = new MpesaService(guardianPrisma, {} as any, {} as any);
+
+    const guardianRecipient = await (service as any).resolveWhatsappRecipient(
+      {
+        notes: 'Bill to: Jane Doe | Phone: 0703377395 | Source: MANUAL',
+        patientId: 'pat-1',
+        phone: '254703377395',
+      },
+      null,
+    );
+    expect(guardianRecipient).toBe('+254723456789');
+
+    const phonePrisma: any = { emergencyContact: { findMany: jest.fn().mockResolvedValue([]) } };
+    const fallbackService = new MpesaService(phonePrisma, {} as any, {} as any);
+    const invoicePhoneRecipient = await (fallbackService as any).resolveWhatsappRecipient(
+      {
+        notes: 'Bill to: Jane Doe | Phone: 0703377395 | Source: MANUAL',
+        patientId: 'pat-1',
+        phone: '254712345678',
+      },
+      null,
+    );
+    expect(invoicePhoneRecipient).toBe('0703377395');
   });
 
   it('does not post a payment for a duplicate callback', async () => {
@@ -241,8 +297,9 @@ describe('MpesaService (Daraja STK Push)', () => {
       $transaction: jest.fn(),
       patient: { findUnique: jest.fn() },
     };
-    const communication: any = { sendMessage: jest.fn() };
-    const service = new MpesaService(prisma, communication);
+    const communication: any = { sendMessage: jest.fn(), sendWhatsAppDocument: jest.fn() };
+    const pdf: any = { generate: jest.fn() };
+    const service = new MpesaService(prisma, communication, pdf);
 
     const result = await service.handleCallback({
       Body: {
@@ -264,6 +321,7 @@ describe('MpesaService (Daraja STK Push)', () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(communication.sendMessage).not.toHaveBeenCalled();
+    expect(communication.sendWhatsAppDocument).not.toHaveBeenCalled();
     expect(result.alreadyProcessed).toBe(true);
   });
 });

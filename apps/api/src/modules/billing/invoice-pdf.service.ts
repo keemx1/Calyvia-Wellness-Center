@@ -326,7 +326,7 @@ export class InvoicePdfService {
     const cleanNotes = notes
       .split('|')
       .map((part) => part.trim())
-      .filter((part) => part && !/^(Bill to|Phone|Source):/i.test(part))
+      .filter((part) => part && !/^(Bill to|Phone|WhatsApp|Source):/i.test(part))
       .join(' | ');
     if (cleanNotes) {
       this.text(page, this.fit(cleanNotes, regular, 8, 508), 58, 58, regular, 8, MUTED);
