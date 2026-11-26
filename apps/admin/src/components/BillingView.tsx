@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -28,6 +28,19 @@ interface BillingViewProps {
 
 type Tab = 'invoices' | 'create' | 'payments';
 type LineItem = { description: string; quantity: string; unitPriceKES: string };
+type StkPhase = 'form' | 'sending' | 'pending' | 'success' | 'error';
+
+type StkModalState = {
+  invoice: any;
+  phoneNumber: string;
+  amountKES: string;
+  phase: StkPhase;
+  message?: string;
+  checkoutRequestId?: string;
+  startingPaidKES: number;
+  startingBalanceKES: number;
+  retryable?: boolean;
+};
 
 const emptyItem = (): LineItem => ({ description: '', quantity: '1', unitPriceKES: '' });
 
@@ -94,15 +107,65 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
   });
 
   const [sendModal, setSendModal] = useState<{ invoice: any; recipient: string } | null>(null);
-  const [stkModal, setStkModal] = useState<{
-    invoice: any;
-    phoneNumber: string;
-    amountKES: string;
-  } | null>(null);
+  const [stkModal, setStkModal] = useState<StkModalState | null>(null);
+  const stkCancelledRef = useRef(false);
 
   const authHeaders = useMemo(
     () => ({ Authorization: `Bearer ${token || ''}` }),
     [token],
+  );
+
+  const patchStk = useCallback((patch: Partial<StkModalState>) => {
+    setStkModal((current) => (current ? { ...current, ...patch } : null));
+  }, []);
+
+  const closeStkModal = useCallback(() => {
+    stkCancelledRef.current = true;
+    setStkModal(null);
+    setBusy(false);
+  }, []);
+
+  const openStkModal = useCallback((invoice: any) => {
+    const balance = Number(pick(invoice, 'balanceKES', 'balance_due') ?? 0);
+    stkCancelledRef.current = false;
+    setStkModal({
+      invoice,
+      phoneNumber: String(pick(invoice, 'billToPhone') ?? ''),
+      amountKES: String(balance),
+      phase: 'form',
+      startingPaidKES: Number(pick(invoice, 'paidAmountKES', 'paid_amount') ?? 0),
+      startingBalanceKES: balance,
+    });
+  }, []);
+
+  const waitForMpesaPayment = useCallback(
+    async (
+      invoiceId: string,
+      startingPaidKES: number,
+      startingBalanceKES: number,
+    ): Promise<'paid' | 'timeout' | 'cancelled'> => {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        if (stkCancelledRef.current) return 'cancelled';
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (stkCancelledRef.current) return 'cancelled';
+        try {
+          const res = await fetch(`${apiUrl}/billing/invoices`, { headers: authHeaders });
+          if (!res.ok) continue;
+          const rows: any[] = await res.json();
+          const updated = rows.find((row) => String(pick(row, 'id')) === String(invoiceId));
+          if (!updated) continue;
+          const paid = Number(pick(updated, 'paidAmountKES', 'paid_amount') ?? 0);
+          const balance = Number(pick(updated, 'balanceKES', 'balance_due') ?? 0);
+          if (paid > startingPaidKES + 0.01 || balance < startingBalanceKES - 0.01) {
+            return 'paid';
+          }
+        } catch {
+          // A transient polling error should not cancel the payment wait.
+        }
+      }
+      return 'timeout';
+    },
+    [apiUrl, authHeaders],
   );
 
   const fetchAll = useCallback(async () => {
@@ -332,36 +395,79 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
   };
 
   const handleTriggerStk = async () => {
-    if (!stkModal) return;
+    if (!stkModal || stkModal.phase !== 'form') return;
+    const invoiceId = String(pick(stkModal.invoice, 'id') ?? '');
     const amount = Number(stkModal.amountKES);
-    if (!stkModal.phoneNumber.trim() || !amount || amount <= 0) {
-      setNotice({ type: 'error', text: 'Enter a valid phone number and payment amount.' });
+    if (!invoiceId || !stkModal.phoneNumber.trim() || !amount || amount <= 0) {
+      patchStk({
+        phase: 'error',
+        message: 'Enter a valid phone number and payment amount.',
+        retryable: true,
+      });
       return;
     }
 
+    stkCancelledRef.current = false;
     setBusy(true);
     setNotice(null);
+    patchStk({
+      phase: 'sending',
+      message: 'Sending STK Push to Safaricom…',
+      retryable: false,
+    });
+
     try {
       const res = await fetch(`${apiUrl}/billing/mpesa/stk-push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
-          invoiceId: pick(stkModal.invoice, 'id'),
+          invoiceId,
           phoneNumber: stkModal.phoneNumber.trim(),
           amountKES: amount,
         }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, 'Could not send the STK push.'));
       const data = await res.json();
-      setNotice({
-        type: 'success',
-        text: `STK Push sent to ${data.phoneNumber || stkModal.phoneNumber}. Ask the client to enter their M-Pesa PIN. The invoice will update automatically when payment is confirmed.`,
+      if (stkCancelledRef.current) return;
+
+      patchStk({
+        phase: 'pending',
+        checkoutRequestId: data.CheckoutRequestID,
+        message: `STK Push sent to ${data.phoneNumber || stkModal.phoneNumber}. Waiting for the client to enter their M-Pesa PIN…`,
+        retryable: false,
       });
-      setStkModal(null);
+
+      const outcome = await waitForMpesaPayment(
+        invoiceId,
+        stkModal.startingPaidKES,
+        stkModal.startingBalanceKES,
+      );
+      if (stkCancelledRef.current || outcome === 'cancelled') return;
+
+      if (outcome === 'paid') {
+        patchStk({
+          phase: 'success',
+          message: 'Payment confirmed. The invoice has been updated.',
+          retryable: false,
+        });
+        setNotice({ type: 'success', text: 'M-Pesa payment confirmed and invoice updated.' });
+        await fetchAll();
+        return;
+      }
+
+      patchStk({
+        phase: 'error',
+        message:
+          'No payment confirmation yet. Keep this window open if the client is still entering their PIN, or close it and refresh the billing page later. The invoice updates automatically when Safaricom sends the callback.',
+        retryable: false,
+      });
     } catch (err: any) {
-      setNotice({ type: 'error', text: err?.message || 'Could not send the STK push.' });
+      if (stkCancelledRef.current) return;
+      const text = err?.message || 'Could not send the STK push.';
+      patchStk({ phase: 'error', message: text, retryable: true });
+      setNotice({ type: 'error', text });
     } finally {
-      setBusy(false);
+      if (!stkCancelledRef.current) setBusy(false);
     }
   };
 
@@ -440,8 +546,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              {loading ? 'Loading invoices…' : `${invoices.length} invoice(s)`} · PDFs use the
-              official Calyvia letterhead.
+              {loading ? 'Loading invoices…' : `${invoices.length} invoice(s)`}
             </p>
             <div className="flex gap-2">
               <button
@@ -522,15 +627,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
                           <button
                             type="button"
                             title="Pay with M-Pesa (STK Push)"
-                            onClick={() =>
-                              setStkModal({
-                                invoice,
-                                phoneNumber: String(pick(invoice, 'billToPhone') ?? ''),
-                                amountKES: String(
-                                  Number(pick(invoice, 'balanceKES', 'balance_due') ?? 0),
-                                ),
-                              })
-                            }
+                            onClick={() => openStkModal(invoice)}
                             disabled={busy}
                             className="p-2 rounded-lg border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-all disabled:opacity-60"
                           >
@@ -907,46 +1004,129 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
                 <h3 className="font-serif text-lg font-bold text-foreground">Pay with M-Pesa</h3>
                 <p className="text-xs text-muted-foreground mt-1">
                   {pick(stkModal.invoice, 'invoiceNumber', 'invoice_number')} · balance{' '}
-                  {money(pick(stkModal.invoice, 'balanceKES', 'balance_due'))}
+                  {money(stkModal.startingBalanceKES)}
                 </p>
               </div>
-              <button type="button" onClick={() => setStkModal(null)}>
+              <button type="button" onClick={closeStkModal} aria-label="Close payment dialog">
                 <X className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
-            <label className="block text-xs">
-              <span className="block font-semibold text-foreground mb-1.5">Client M-Pesa number</span>
-              <input
-                autoFocus
-                value={stkModal.phoneNumber}
-                onChange={(e) => setStkModal({ ...stkModal, phoneNumber: e.target.value })}
-                placeholder="0712345678"
-                className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
-              />
-            </label>
-            <label className="block text-xs">
-              <span className="block font-semibold text-foreground mb-1.5">Amount (KES)</span>
-              <input
-                type="number"
-                min="1"
-                value={stkModal.amountKES}
-                onChange={(e) => setStkModal({ ...stkModal, amountKES: e.target.value })}
-                className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
-              />
-            </label>
-            <p className="text-[10px] text-muted-foreground">
-              A real Safaricom STK prompt is sent to this phone. The invoice updates automatically
-              when the payment callback is received. Do not record the payment manually as well.
-            </p>
-            <button
-              type="button"
-              onClick={handleTriggerStk}
-              disabled={busy || !stkModal.phoneNumber.trim() || !Number(stkModal.amountKES)}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary-hover transition-all disabled:opacity-60"
-            >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
-              Send STK Push
-            </button>
+
+            {stkModal.phase === 'form' && (
+              <>
+                <label className="block text-xs">
+                  <span className="block font-semibold text-foreground mb-1.5">
+                    Client M-Pesa number
+                  </span>
+                  <input
+                    autoFocus
+                    value={stkModal.phoneNumber}
+                    onChange={(e) => patchStk({ phoneNumber: e.target.value })}
+                    placeholder="0712345678"
+                    className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
+                  />
+                </label>
+                <label className="block text-xs">
+                  <span className="block font-semibold text-foreground mb-1.5">Amount (KES)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={stkModal.amountKES}
+                    onChange={(e) => patchStk({ amountKES: e.target.value })}
+                    className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
+                  />
+                </label>
+                <p className="text-[10px] text-muted-foreground">
+                  A real Safaricom STK prompt is sent to this phone. Keep this window open after
+                  sending; it will confirm when payment is received. Do not record the payment
+                  manually as well.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleTriggerStk}
+                  disabled={!stkModal.phoneNumber.trim() || !Number(stkModal.amountKES)}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary-hover transition-all disabled:opacity-60"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  Send STK Push
+                </button>
+              </>
+            )}
+
+            {(stkModal.phase === 'sending' || stkModal.phase === 'pending') && (
+              <div className="flex flex-col items-center text-center gap-3 py-5">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {stkModal.phase === 'sending'
+                      ? 'Sending STK Push…'
+                      : 'Waiting for payment confirmation…'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{stkModal.message}</p>
+                </div>
+                {stkModal.phase === 'pending' && (
+                  <>
+                    <p className="text-[10px] text-muted-foreground">
+                      Keep this window open. The invoice will update automatically once payment is
+                      confirmed.
+                    </p>
+                    {stkModal.checkoutRequestId && (
+                      <p className="text-[10px] font-mono text-muted-foreground break-all">
+                        ID: {stkModal.checkoutRequestId}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {stkModal.phase === 'success' && (
+              <div className="flex flex-col items-center text-center gap-3 py-5">
+                <CheckCircle2 className="w-10 h-10 text-success" />
+                <div>
+                  <p className="text-sm font-bold text-foreground">Payment confirmed</p>
+                  <p className="text-xs text-muted-foreground mt-1">{stkModal.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeStkModal}
+                  className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary-hover transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+
+            {stkModal.phase === 'error' && (
+              <div className="flex flex-col items-center text-center gap-3 py-5">
+                <AlertCircle className="w-9 h-9 text-destructive" />
+                <div>
+                  <p className="text-sm font-bold text-foreground">Payment not confirmed</p>
+                  <p className="text-xs text-muted-foreground mt-1">{stkModal.message}</p>
+                </div>
+                <div className="flex w-full gap-2">
+                  {stkModal.retryable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stkCancelledRef.current = false;
+                        patchStk({ phase: 'form', message: undefined, retryable: false });
+                      }}
+                      className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary-hover transition-all"
+                    >
+                      Try again
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={closeStkModal}
+                    className="flex-1 py-3 border border-border rounded-xl text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-surface-subtle transition-all"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
