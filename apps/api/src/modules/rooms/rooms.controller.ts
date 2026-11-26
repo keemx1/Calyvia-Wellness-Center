@@ -1,6 +1,12 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { RoomsService, AllocateBedDto, TransferBedDto } from './rooms.service';
+import {
+  RoomsService,
+  AllocateBedDto,
+  TransferBedDto,
+  CreateRoomDto,
+  CreateBedDto,
+} from './rooms.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -29,12 +35,36 @@ export class RoomsController {
     return this.roomsService.getRoomsAndBeds();
   }
 
+  @Post()
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
+  @AuditLog({ action: 'CREATE_ROOM', resource: 'ROOM' })
+  @ApiOperation({ summary: 'Create an inpatient room' })
+  async createRoom(@Body() dto: CreateRoomDto) {
+    return this.roomsService.createRoom(dto);
+  }
+
+  @Post(':id/beds')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
+  @AuditLog({ action: 'CREATE_BED', resource: 'BED' })
+  @ApiOperation({ summary: 'Add a bed to an existing room' })
+  async createBed(@Param('id') id: string, @Body() dto: CreateBedDto) {
+    return this.roomsService.createBed(id, dto);
+  }
+
   @Post('allocations')
   @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN, UserRole.ADMISSIONS_FRONT_DESK, UserRole.NURSE)
   @AuditLog({ action: 'ALLOCATE_BED', resource: 'BED_ALLOCATION' })
   @ApiOperation({ summary: 'Assign available bed to an admitted patient' })
   async allocateBed(@Body() dto: AllocateBedDto) {
     return this.roomsService.allocateBed(dto);
+  }
+
+  @Post('allocations/:id/release')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN, UserRole.NURSE, UserRole.MEDICAL_DIRECTOR)
+  @AuditLog({ action: 'RELEASE_BED_ALLOCATION', resource: 'BED_ALLOCATION' })
+  @ApiOperation({ summary: 'Release an active bed allocation and free the bed' })
+  async releaseAllocation(@Param('id') id: string) {
+    return this.roomsService.releaseAllocation(id);
   }
 
   @Post('transfers')

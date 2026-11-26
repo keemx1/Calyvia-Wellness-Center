@@ -74,6 +74,7 @@ import { TasksView } from '../components/TasksView';
 import { IncidentsView } from '../components/IncidentsView';
 import { ReferralsView } from '../components/ReferralsView';
 import { CommunicationView } from '../components/CommunicationView';
+import { RoomsView } from '../components/RoomsView';
 import { AutomationView } from '../components/AutomationView';
 import { BottomNav } from '../components/BottomNav';
 
@@ -560,7 +561,7 @@ export default function AdminDashboardPage() {
     setLoadingMetrics(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-      const res = await fetch(`${apiUrl}/dashboard`, {
+      const res = await fetch(`${apiUrl}/dashboard/metrics`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -1940,57 +1941,12 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* Module: 09. Rooms & Bed Allocation */}
+          {/* Module: 09. Rooms & Bed Allocation — live facility board */}
           {activeModule === 'rooms' && (
-            <div className="space-y-6">
-              <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-serif text-xl font-bold text-foreground">Inpatient Rooms & Bed Allocation Board</h2>
-                    <p className="text-xs text-muted-foreground">Live ward capacity, bed occupancy, and patient transfer controls</p>
-                  </div>
-                  <div className="text-xs font-mono font-semibold text-primary">
-                    Total: {dashboardMetrics?.census?.occupiedBeds ?? 0}/{dashboardMetrics?.census?.totalBeds ?? 0} Beds Occupied
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div className="p-4 rounded-xl bg-surface-subtle border border-border space-y-3">
-                    <div className="flex items-center justify-between font-semibold">
-                      <span className="text-foreground">Detox Ward (High Acuity)</span>
-                      <span className="text-accent text-xs">
-                        {dashboardMetrics?.census?.detoxWardOccupancy ?? 0} / 6 Beds ({(dashboardMetrics?.census?.detoxWardOccupancy ?? 0) > 0 ? 'Active' : 'All Available'})
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      {[1, 2, 3, 4, 5, 6].map((b) => (
-                        <div key={b} className="p-2 rounded-lg bg-surface border border-border text-center">
-                          <span className="font-mono font-semibold text-foreground">Bed 0{b}</span>
-                          <div className="text-[10px] text-muted-foreground truncate">Available</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-surface-subtle border border-border space-y-3">
-                    <div className="flex items-center justify-between font-semibold">
-                      <span className="text-foreground">Horizon Wing (Male Inpatient)</span>
-                      <span className="text-primary text-xs">
-                        {dashboardMetrics?.census?.inpatientMaleOccupancy ?? 0} / 16 Beds ({(dashboardMetrics?.census?.inpatientMaleOccupancy ?? 0) > 0 ? 'Active' : 'All Available'})
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-2 text-xs">
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((b) => (
-                        <div key={b} className="p-2 rounded-lg bg-surface border border-border text-center">
-                          <span className="font-mono font-semibold text-foreground">Bed 0{b}</span>
-                          <div className="text-[10px] text-muted-foreground">Available</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <RoomsView
+              token={token}
+              apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+            />
           )}
 
           {/* Module: 12. Staff & Licence Roster */}

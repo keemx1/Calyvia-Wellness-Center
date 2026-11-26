@@ -59,15 +59,38 @@ export class CreateAdmissionDto {
   @IsEnum(ProgramType)
   programType!: ProgramType;
 
-  @ApiProperty({ example: 'Dr. Kevin Kiprotich' })
+  @ApiProperty({ example: 'Alcohol dependence syndrome, severe (F10.2)' })
   @IsString()
   @IsNotEmpty()
-  admittingDoctorName!: string;
+  primaryDiagnosis!: string;
 
-  @ApiProperty({ example: 'Counsellor Samuel Kioko' })
+  @ApiPropertyOptional({ example: 'Dr. Kevin Kiprotich' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  primaryCounsellorName!: string;
+  referringDoctor?: string;
+
+  /**
+   * @deprecated Kept for compatibility with older clients; maps to
+   * referring_doctor when provided. The admitting clinician is taken from the
+   * authenticated user by the controller.
+   */
+  @ApiPropertyOptional({ example: 'Dr. Kevin Kiprotich' })
+  @IsOptional()
+  @IsString()
+  admittingDoctorName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  primaryCounsellorName?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Authenticated user id is used when omitted (set by the controller).',
+  })
+  @IsOptional()
+  @IsString()
+  admittingStaffId?: string;
 
   @ApiPropertyOptional()
   @IsDateString()

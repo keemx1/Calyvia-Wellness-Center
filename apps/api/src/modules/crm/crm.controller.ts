@@ -5,6 +5,7 @@ import { CreateLeadDto, UpdateLeadStatusDto, CreateAdmissionDto } from './dto/cr
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuditLog } from '../../common/decorators/audit-log.decorator';
 import { UserRole } from '@calyvia/shared';
 
@@ -42,8 +43,11 @@ export class CrmController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN, UserRole.ADMISSIONS_FRONT_DESK, UserRole.MEDICAL_DIRECTOR)
   @AuditLog({ action: 'PROCESS_PATIENT_ADMISSION', resource: 'ADMISSION' })
   @ApiOperation({ summary: 'Process formal admission of a patient into detox or rehabilitation' })
-  async processAdmission(@Body() dto: CreateAdmissionDto) {
-    return this.crmService.processAdmission(dto);
+  async processAdmission(
+    @Body() dto: CreateAdmissionDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.crmService.processAdmission(dto, userId);
   }
 
   @Get('admissions')
