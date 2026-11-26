@@ -12,6 +12,7 @@ import {
   Star,
   Phone,
   BarChart2,
+  Trash2,
 } from 'lucide-react';
 
 import { GatewaySettingsView } from './GatewaySettingsView';
@@ -33,6 +34,7 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [sendForm, setSendForm] = useState({
@@ -72,6 +74,28 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
       setLoading(false);
     }
   }, [token, apiUrl]);
+
+  const handleDeleteLog = async (id: string) => {
+    if (!token || !window.confirm('Delete this message log entry?')) return;
+    setDeletingLogId(id);
+    setFeedbackMsg(null);
+    try {
+      const res = await fetch(`${apiUrl}/communication/logs/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to delete the message log.');
+      }
+      setFeedbackMsg({ type: 'success', text: 'Message log deleted.' });
+      await fetchLogs();
+    } catch (err: any) {
+      setFeedbackMsg({ type: 'error', text: err?.message || 'Failed to delete the message log.' });
+    } finally {
+      setDeletingLogId(null);
+    }
+  };
 
   const fetchFeedback = useCallback(async () => {
     if (!token) return;
@@ -285,19 +309,20 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                   <th className="px-4 py-3">Message Body</th>
                   <th className="px-4 py-3">Dispatch Gateway Ref</th>
                   <th className="px-4 py-3">Delivery Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {loading && commLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-xs text-muted-foreground">
+                    <td colSpan={6} className="py-12 text-center text-xs text-muted-foreground">
                       <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary mb-2" />
                       <span>Loading communication logs...</span>
                     </td>
                   </tr>
                 ) : commLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-xs text-muted-foreground">
+                    <td colSpan={6} className="py-12 text-center text-xs text-muted-foreground">
                       <MessageSquare className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
                       <p className="font-semibold text-foreground">No communication broadcasts sent yet</p>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -320,6 +345,21 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                           {l.status || 'DELIVERED'}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          title="Delete message log"
+                          onClick={() => handleDeleteLog(l.id)}
+                          disabled={deletingLogId === l.id}
+                          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-all disabled:opacity-60"
+                        >
+                          {deletingLogId === l.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))

@@ -241,6 +241,28 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl }) => {
     }
   };
 
+  const handleDeleteInvoice = async (invoice: any) => {
+    const number = pick(invoice, 'invoiceNumber', 'invoice_number');
+    if (!window.confirm(`Delete invoice ${number}? Its line items and payments will also be removed.`)) {
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`${apiUrl}/billing/invoices/${pick(invoice, 'id')}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, 'Could not delete the invoice.'));
+      setNotice({ type: 'success', text: `Invoice ${number} deleted.` });
+      await fetchAll();
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Could not delete the invoice.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSendWhatsApp = async () => {
     if (!sendModal) return;
     setBusy(true);
@@ -476,6 +498,15 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl }) => {
                           className="p-2 rounded-lg border border-border text-muted-foreground hover:text-success hover:border-success/40 transition-all disabled:opacity-60"
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete invoice"
+                          onClick={() => handleDeleteInvoice(invoice)}
+                          disabled={busy}
+                          className="p-2 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-all disabled:opacity-60"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>

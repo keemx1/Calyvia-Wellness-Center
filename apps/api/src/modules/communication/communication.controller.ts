@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { CommunicationService, SendMessageDto } from './communication.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -25,6 +25,13 @@ export class CommunicationController {
   @ApiOperation({ summary: 'View recent communication outbound logs and delivery receipts' })
   async getLogs() {
     return this.communicationService.getRecentLogs();
+  }
+
+  @Delete('logs/:id')
+  @AuditLog({ action: 'DELETE_COMMUNICATION_LOG', resource: 'COMMUNICATION' })
+  @ApiOperation({ summary: 'Delete one outbound communication log entry' })
+  async deleteLog(@Param('id') id: string) {
+    return this.communicationService.deleteLog(id);
   }
 
   @Get('sms-templates')

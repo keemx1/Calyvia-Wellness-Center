@@ -33,16 +33,19 @@ describe('BillingService (Invoicing Center)', () => {
           notes: 'Bill to: Jane Doe | Phone: 0703377395 | Source: MANUAL',
         }),
         update: jest.fn().mockImplementation((args) => Promise.resolve(args.data)),
+        delete: jest.fn().mockImplementation((args) => Promise.resolve(args.where)),
       },
       invoiceItem: {
         create: jest.fn().mockImplementation((args) => Promise.resolve(args.data)),
         findMany: jest.fn().mockResolvedValue([
-          { description: 'Detox', quantity: 7, unitPriceKES: 15000, lineTotal: 105000 },
+          { id: 'item-1', description: 'Detox', quantity: 7, unitPriceKES: 15000, lineTotal: 105000 },
         ]),
+        delete: jest.fn().mockImplementation((args) => Promise.resolve(args.where)),
       },
       payment: {
         create: jest.fn().mockImplementation((args) => Promise.resolve(args.data)),
         findMany: jest.fn().mockResolvedValue([]),
+        delete: jest.fn().mockImplementation((args) => Promise.resolve(args.where)),
       },
       admission: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -186,6 +189,17 @@ describe('BillingService (Invoicing Center)', () => {
     expect(mockCommunication.sendWhatsAppDocument).toHaveBeenCalledWith(
       expect.objectContaining({ recipient: '0712345678' }),
     );
+  });
+
+  it('deletes an invoice together with its line items and payments', async () => {
+    mockPrisma.payment.findMany.mockResolvedValue([{ id: 'pay-1' }]);
+
+    const result = await service.deleteInvoice('inv-test-1');
+
+    expect(mockPrisma.payment.delete).toHaveBeenCalledWith({ where: { id: 'pay-1' } });
+    expect(mockPrisma.invoiceItem.delete).toHaveBeenCalledWith({ where: { id: 'item-1' } });
+    expect(mockPrisma.invoice.delete).toHaveBeenCalledWith({ where: { id: 'inv-test-1' } });
+    expect(result).toMatchObject({ success: true, invoiceNumber: 'INV-2026-0042' });
   });
 
   it('should trigger M-Pesa STK Push handshake without failure', async () => {

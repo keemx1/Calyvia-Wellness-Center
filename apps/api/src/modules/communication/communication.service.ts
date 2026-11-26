@@ -1,4 +1,11 @@
-import { Injectable, BadRequestException, ServiceUnavailableException, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { KenyaUtils, CommunicationChannel } from '@calyvia/shared';
 import { SystemSettingsService } from '../system-admin/settings.service';
@@ -248,6 +255,16 @@ export class CommunicationService implements OnModuleInit {
       this.logger.warn(`Communication logs fetch error: ${(err as any)?.message || err}`);
       return [];
     }
+  }
+
+  /** Remove one outbound log entry from the Communication Hub list. */
+  async deleteLog(id: string) {
+    if (!this.prisma?.communicationLog?.delete) {
+      throw new ServiceUnavailableException('Communication log storage is unavailable.');
+    }
+    const deleted = await this.prisma.communicationLog.delete({ where: { id } });
+    if (!deleted) throw new NotFoundException(`Communication log ${id} not found.`);
+    return { success: true, id };
   }
 
   /** All SMS message formats, with operator edits layered over the defaults. */

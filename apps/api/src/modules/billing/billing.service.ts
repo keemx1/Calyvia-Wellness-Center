@@ -369,6 +369,34 @@ export class BillingService {
     });
   }
 
+  /**
+   * Hard-delete an invoice. Payments reference invoices with ON DELETE RESTRICT,
+   * so they are removed first; their M-Pesa rows remain as orphaned audit rows
+   * because that foreign key uses ON DELETE SET NULL.
+   */
+  async deleteInvoice(id: string) {
+    if (!this.prisma?.invoice?.delete) {
+      throw new BadRequestException('Invoices repository is unavailable.');
+    }
+    const invoice = await this.getInvoiceOrThrow(id);
+
+    if (this.prisma.payment?.findMany && this.prisma.payment?.delete) {
+      const payments = await this.prisma.payment.findMany({ where: { invoiceId: id } });
+      for (const payment of payments ?? []) {
+        await this.prisma.payment.delete({ where: { id: payment.id } });
+      }
+    }
+    if (this.prisma.invoiceItem?.findMany && this.prisma.invoiceItem?.delete) {
+      const items = await this.prisma.invoiceItem.findMany({ where: { invoiceId: id } });
+      for (const item of items ?? []) {
+        await this.prisma.invoiceItem.delete({ where: { id: item.id } });
+      }
+    }
+
+    await this.prisma.invoice.delete({ where: { id } });
+    return { success: true, id, invoiceNumber: this.invoiceNumber(invoice) };
+  }
+
   async getInvoices() {
     try {
       if (this.prisma && this.prisma.invoice) {

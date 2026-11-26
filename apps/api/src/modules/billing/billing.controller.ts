@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
@@ -61,6 +61,14 @@ export class BillingController {
     @Body() body?: { recipient?: string },
   ) {
     return this.billingService.sendInvoiceViaWhatsApp(id, body?.recipient);
+  }
+
+  @Delete('invoices/:id')
+  @Roles(...BILLING_ROLES)
+  @AuditLog({ action: 'DELETE_INVOICE', resource: 'INVOICE' })
+  @ApiOperation({ summary: 'Delete an invoice and its line items/payments' })
+  async deleteInvoice(@Param('id') id: string) {
+    return this.billingService.deleteInvoice(id);
   }
 
   @Post('payments')

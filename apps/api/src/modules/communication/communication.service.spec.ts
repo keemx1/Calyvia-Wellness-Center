@@ -44,6 +44,9 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
           Promise.resolve({ id: 'comm-test-1', ...args.data }),
         ),
         findMany: jest.fn().mockResolvedValue([]),
+        delete: jest.fn().mockImplementation((args: any) =>
+          Promise.resolve({ id: args.where.id }),
+        ),
       },
     };
     mockSettings = makeSettings();
@@ -66,6 +69,16 @@ describe('CommunicationService (SMS & WhatsApp dispatch)', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('deletes a communication log by id', async () => {
+    await expect(service.deleteLog('comm-test-1')).resolves.toEqual({
+      success: true,
+      id: 'comm-test-1',
+    });
+    expect(mockPrisma.communicationLog.delete).toHaveBeenCalledWith({
+      where: { id: 'comm-test-1' },
+    });
   });
 
   it('renders a saved message format instead of dispatching a raw body', async () => {
