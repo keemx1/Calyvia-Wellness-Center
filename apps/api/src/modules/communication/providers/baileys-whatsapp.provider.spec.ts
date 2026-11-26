@@ -216,7 +216,13 @@ describe('BaileysWhatsAppGateway', () => {
 
     const gw = new BaileysWhatsAppGateway();
     (gw as any).start = jest.fn(async () => {});
-    (gw as any).sock = { ev: { removeAllListeners: jest.fn() }, end: jest.fn() };
+    (gw as any).sock = {
+      ev: {
+        once: jest.fn((_event: string, cb: (u: any) => void) => cb({ connection: 'close' })),
+        removeAllListeners: jest.fn(),
+      },
+      end: jest.fn(),
+    };
 
     try {
       await gw.resetSession();

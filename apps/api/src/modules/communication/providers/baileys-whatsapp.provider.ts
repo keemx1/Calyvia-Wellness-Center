@@ -367,7 +367,11 @@ export class BaileysWhatsAppGateway {
   /**
    * Clear a stale/corrupt Baileys session and open a fresh handshake. Useful when
    * WhatsApp closes every attempt before a QR — e.g. credentials left behind by a
-   * failed pairing. Only the configured session directory is removed.
+   * failed pairing.
+   *
+   * The auth directory is normally a mounted persistent volume (Coolify/Docker).
+   * Removing the directory itself fails with EBUSY on a mount point, so we delete
+   * only its CONTENTS and leave the directory in place.
    */
   async resetSession(): Promise<void> {
     const resolved = path.resolve(this.authDir);
@@ -386,18 +390,40 @@ export class BaileysWhatsAppGateway {
         /* start already reported its failure */
       }
     }
+
+    if (this.sock) {
+      const sock = this.sock;
+      // Give the socket a bounded chance to release its files before unlinking.
+      await new Promise<void>((done) => {
+        let settled = false;
+        let timer: NodeJS.Timeout | undefined;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          done();
+        };
+        sock.ev?.once?.('connection.update', (u: any) => {
+          if (u?.connection === 'close') finish();
+        });
+        timer = setTimeout(finish, 2_000);
+        try {
+          sock.end?.(undefined);
+        } catch {
+          finish();
+        }
+      });
+      try {
+        sock.ev?.removeAllListeners?.();
+      } catch {
+        /* already gone */
+      }
+      this.sock = null;
+    }
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
-    }
-    if (this.sock) {
-      try {
-        this.sock.ev?.removeAllListeners?.();
-        this.sock.end?.(undefined);
-      } catch {
-        /* socket is already dead */
-      }
-      this.sock = null;
     }
 
     this.status = 'disconnected';
@@ -407,9 +433,18 @@ export class BaileysWhatsAppGateway {
     this.reconnectAttempts = 0;
     this.rejectQrWaiters(new Error('WhatsApp session was reset; request pairing again.'));
 
-    fs.rmSync(resolved, { recursive: true, force: true });
     fs.mkdirSync(resolved, { recursive: true });
-    this.logger.warn(`Cleared WhatsApp session directory ${resolved}; reconnecting.`);
+    try {
+      for (const entry of fs.readdirSync(resolved)) {
+        fs.rmSync(path.join(resolved, entry), { recursive: true, force: true });
+      }
+    } catch (err: any) {
+      throw new Error(
+        `Could not clear WhatsApp session files in ${resolved}: ${err?.message || err}. ` +
+          'Ensure the mounted directory is writable and no other process is using it.',
+      );
+    }
+    this.logger.warn(`Cleared WhatsApp session files in ${resolved}; reconnecting.`);
     await this.start();
   }
 
