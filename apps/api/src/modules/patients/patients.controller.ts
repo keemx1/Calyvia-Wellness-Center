@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PatientsService } from './patients.service';
 import {
@@ -120,5 +120,15 @@ export class PatientsController {
   @ApiOperation({ summary: 'Update patient demographic or contact details' })
   async update(@Param('id') id: string, @Body() updateDto: UpdatePatientDto) {
     return this.patientsService.update(id, updateDto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN, UserRole.MEDICAL_DIRECTOR)
+  @AuditLog({ action: 'DELETE_PATIENT', resource: 'PATIENT' })
+  @ApiOperation({
+    summary: 'Delete a patient from the active registry (archive, retaining clinical and billing records)',
+  })
+  async deletePatient(@Param('id') id: string) {
+    return this.patientsService.deletePatient(id);
   }
 }

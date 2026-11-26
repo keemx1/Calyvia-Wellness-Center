@@ -15,6 +15,7 @@ import {
   Phone,
   Pill,
   ShieldCheck,
+  Trash2,
   Upload,
   UserRound,
   UsersRound,
@@ -28,6 +29,9 @@ interface PatientDashboardViewProps {
   onBack: () => void;
   onInvoiceCreated?: () => void;
   canCreateInvoice?: boolean;
+  canDeletePatient?: boolean;
+  /** Performs the confirmed delete in the parent and returns true when it succeeded. */
+  onDelete?: (id: string, name: string) => Promise<boolean>;
 }
 
 type Tab = 'overview' | 'billing' | 'medication' | 'photos';
@@ -68,6 +72,8 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
   onBack,
   onInvoiceCreated,
   canCreateInvoice = true,
+  canDeletePatient = false,
+  onDelete,
 }) => {
   const [tab, setTab] = useState<Tab>('overview');
   const [patient, setPatient] = useState<any>(null);
@@ -78,6 +84,7 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
   const [uploading, setUploading] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceBusy, setInvoiceBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
     description: '',
     quantity: '1',
@@ -191,6 +198,22 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
       URL.revokeObjectURL(url);
     } catch (err: any) {
       setNotice({ type: 'error', text: err?.message || 'Could not download the invoice PDF.' });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    const displayName =
+      [pick(patient, 'firstName', 'first_name'), pick(patient, 'lastName', 'last_name')]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || 'this patient';
+    setDeleting(true);
+    try {
+      const deleted = await onDelete(patientId, displayName);
+      if (deleted) onBack();
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -317,13 +340,25 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
               </div>
             </div>
           </div>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" /> {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={load}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            {canDeletePatient && onDelete && (
+              <button
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                title="Delete patient from the active registry"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-destructive/30 bg-destructive-soft text-destructive text-xs font-semibold hover:border-destructive/60 disabled:opacity-60"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> {deleting ? 'Deleting…' : 'Delete patient'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

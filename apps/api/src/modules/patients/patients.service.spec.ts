@@ -28,6 +28,12 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
           Promise.resolve({ id: 'patient-1', ...args.data }),
         ),
         findUnique: jest.fn().mockResolvedValue({ id: 'patient-1', firstName: 'Jane' }),
+        update: jest.fn().mockImplementation((args: any) =>
+          Promise.resolve({ id: 'patient-1', ...args.data }),
+        ),
+      },
+      admission: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       emergencyContact: {
         create: jest.fn().mockImplementation((args: any) =>
@@ -215,5 +221,50 @@ describe('PatientsService (guardian, welcome messages, photos)', () => {
       name: 'passport.jpg',
       url: 'https://storage.example/signed',
     });
+  });
+
+  it('archives a patient with no active admission', async () => {
+    prisma.patient.findUnique.mockResolvedValueOnce({
+      id: 'patient-1',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      isArchived: false,
+    });
+
+    const result = await service.deletePatient('patient-1');
+
+    expect(prisma.admission.findMany).toHaveBeenCalledWith({
+      where: { patientId: 'patient-1', isActive: true },
+      take: 1,
+    });
+    expect(prisma.patient.update).toHaveBeenCalledWith({
+      where: { id: 'patient-1' },
+      data: { isArchived: true },
+    });
+    expect(result).toMatchObject({
+      success: true,
+      archived: true,
+      id: 'patient-1',
+      patientName: 'Jane Doe',
+    });
+  });
+
+  it('refuses to delete a patient who is still actively admitted', async () => {
+    prisma.admission.findMany.mockResolvedValueOnce([{ id: 'admission-1' }]);
+
+    await expect(service.deletePatient('patient-1')).rejects.toThrow(/active admission/);
+    expect(prisma.patient.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete an already archived patient', async () => {
+    prisma.patient.findUnique.mockResolvedValueOnce({
+      id: 'patient-1',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      isArchived: true,
+    });
+
+    await expect(service.deletePatient('patient-1')).rejects.toThrow(/already been deleted/);
+    expect(prisma.patient.update).not.toHaveBeenCalled();
   });
 });

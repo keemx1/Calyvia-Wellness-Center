@@ -285,7 +285,7 @@ export class PatientsService {
   async findOne(id: string) {
     if (this.prisma && this.prisma.patient) {
       const patient = await this.prisma.patient.findUnique({
-        where: { id },
+        where: { id, isArchived: false },
         include: {
           emergencyContacts: true,
           admissions: true,
@@ -315,6 +315,44 @@ export class PatientsService {
       // Fallback
     }
     return { id, ...dto, updatedAt: new Date().toISOString() };
+  }
+
+  /**
+   * "Delete" archives the patient rather than physically removing the row.
+   * Admissions, invoices and aftercare plans have RESTRICT foreign keys, and
+   * clinical records must be retained, so the patient is hidden from the
+   * active registry via the existing is_archived flag.
+   */
+  async deletePatient(id: string) {
+    const patient = await this.ensurePatient(id);
+    if (patient.isArchived) {
+      throw new BadRequestException('This patient has already been deleted.');
+    }
+
+    const activeAdmissions = this.prisma.admission?.findMany
+      ? await this.prisma.admission.findMany({
+          where: { patientId: id, isActive: true },
+          take: 1,
+        })
+      : [];
+    if (activeAdmissions.length) {
+      throw new BadRequestException(
+        'Cannot delete a patient with an active admission. Discharge the patient first.',
+      );
+    }
+
+    const archived = await this.prisma.patient.update({
+      where: { id },
+      data: { isArchived: true },
+    });
+    const patientName = [patient.firstName, patient.lastName].filter(Boolean).join(' ');
+    return {
+      success: true,
+      archived: true,
+      id: archived?.id || id,
+      patientName,
+      message: `${patientName || 'Patient'} was removed from the active registry. Clinical and billing records were retained.`,
+    };
   }
 
   private async ensurePatient(id: string) {

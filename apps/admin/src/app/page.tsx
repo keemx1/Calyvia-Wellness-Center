@@ -60,6 +60,7 @@ import {
   EyeOff,
   Mail,
   Phone,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '../components/AuthContext';
 import { SignInPage } from '../components/SignInPage';
@@ -608,6 +609,38 @@ export default function AdminDashboardPage() {
       setLoadingPatients(false);
     }
   }, [token]);
+
+  const deletePatient = useCallback(
+    async (id: string, name: string) => {
+      const confirmed = window.confirm(
+        `Delete ${name} from the active registry?\n\nThis archives the patient record and removes it from the registry. Clinical, guardian and billing history is retained.`,
+      );
+      if (!confirmed) return false;
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+        const res = await fetch(`${apiUrl}/patients/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || `Delete failed (${res.status}).`);
+        alert(`${name} was deleted from the active registry.`);
+        await fetchPatients();
+        fetchDashboardMetrics();
+        return true;
+      } catch (err: any) {
+        alert(`Could not delete patient: ${err?.message || 'Network error'}`);
+        return false;
+      }
+    },
+    [token, fetchPatients, fetchDashboardMetrics],
+  );
+
+  const canDeletePatient = Boolean(
+    user &&
+      ['SUPER_ADMIN', 'FACILITY_ADMIN', 'MEDICAL_DIRECTOR'].includes(String(user.role)),
+  );
 
   const fetchAppointments = useCallback(async () => {
     if (!token) return;
@@ -1548,6 +1581,8 @@ export default function AdminDashboardPage() {
                   user &&
                     ['SUPER_ADMIN', 'FACILITY_ADMIN', 'FINANCE_BILLING'].includes(String(user.role)),
                 )}
+                canDeletePatient={canDeletePatient}
+                onDelete={deletePatient}
               />
             ) : (
             <div className="space-y-6">
@@ -1648,12 +1683,23 @@ export default function AdminDashboardPage() {
                             <td className="px-4 py-3 text-foreground font-medium">{p.ward}</td>
                             <td className="px-4 py-3 text-muted-foreground">{p.doctor}</td>
                             <td className="px-4 py-3">
-                              <button
-                                onClick={() => setSelectedPatientId(p.id)}
-                                className="px-2.5 py-1 bg-surface border border-border rounded-lg text-[11px] font-semibold hover:bg-surface-elevated"
-                              >
-                                View Dashboard
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setSelectedPatientId(p.id)}
+                                  className="px-2.5 py-1 bg-surface border border-border rounded-lg text-[11px] font-semibold hover:bg-surface-elevated"
+                                >
+                                  View Dashboard
+                                </button>
+                                {canDeletePatient && (
+                                  <button
+                                    onClick={() => void deletePatient(p.id, p.name)}
+                                    title={`Delete ${p.name}`}
+                                    className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive-soft transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ));
