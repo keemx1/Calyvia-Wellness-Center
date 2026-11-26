@@ -1,5 +1,6 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { AiInstitutionalToolsService } from './ai-institutional-tools.service';
+import { AiIntentService } from './ai-intent.service';
 import { AuditService } from '../audit/audit.service';
 import { AiChatRequestDto, AiChatResponseDto } from './dto/ai-chat.dto';
 import { UserRole } from '@calyvia/shared';
@@ -36,27 +37,8 @@ export class AiExtensionService {
   constructor(
     private readonly toolsService: AiInstitutionalToolsService,
     private readonly auditService: AuditService,
+    private readonly intentService: AiIntentService,
   ) {}
-
-  /**
-   * Resolve short conversational follow-ups ("and appointments?", "what about beds?")
-   * into a full institutional query so the same grounded tool is used rather than
-   * guessing from the previous answer.
-   */
-  private followUpTopic(message: string): string | null {
-    if (!/^(and|also|what about|how about|tell me more|show me|same|again)\b/.test(message)) {
-      return null;
-    }
-    const topics: Array<[RegExp, string]> = [
-      [/appointment|schedule|calendar|session/, 'What appointments are scheduled for today?'],
-      [/bed|census|ward|occupancy|room/, 'Summarize bed census and ward occupancy'],
-      [/bill|invoice|revenue|mpesa|m-pesa|payment|daraja/, 'Summarize outstanding invoices and billing'],
-      [/staff|doctor|nurse|therapist|roster/, 'Give me the staff workload for today'],
-      [/detox|ciwa|cows|withdrawal|alcohol|opioid/, 'What is the CIWA-Ar detox protocol?'],
-      [/summary|overview|status/, 'Give me today\'s operational summary'],
-    ];
-    return topics.find(([pattern]) => pattern.test(message))?.[1] || null;
-  }
 
   private moduleLabel(contextModule?: string): string | null {
     if (!contextModule) return null;
@@ -88,9 +70,12 @@ export class AiExtensionService {
     const userRole = user.role as UserRole;
     const userName = user.fullName || 'there';
     const originalMessage = dto.message.trim();
-    const lowerOriginal = originalMessage.toLowerCase();
-    const resolvedFollowUp = this.followUpTopic(lowerOriginal);
-    const message = resolvedFollowUp || originalMessage;
+    const intent = this.intentService.resolve(
+      originalMessage,
+      dto.conversationHistory || [],
+      dto.contextModule,
+    );
+    const message = intent.resolvedQuery || originalMessage;
     const lowerMessage = message.toLowerCase();
     const generatedAt = new Date().toISOString();
     const contextLabel = this.moduleLabel(dto.contextModule);
@@ -101,7 +86,9 @@ export class AiExtensionService {
     let reply = '';
     let suggestedFollowUps: string[] = [];
 
-    if (resolvedFollowUp) toolsExecuted.push('conversation_context');
+    if (intent.isFollowUp || intent.inheritedFromHistory) {
+      toolsExecuted.push('conversation_context');
+    }
 
     try {
       await this.auditService.logAction({
@@ -111,7 +98,9 @@ export class AiExtensionService {
         resource: 'AI_COPILOT',
         diffJson: {
           querySummary: originalMessage.substring(0, 100),
-          resolvedQuery: resolvedFollowUp || null,
+          resolvedQuery: intent.resolvedQuery || null,
+          resolvedIntent: intent.id,
+          confidence: intent.confidence,
           contextModule: dto.contextModule || 'global',
         },
       });
@@ -120,11 +109,13 @@ export class AiExtensionService {
     }
 
     const meta = () => ({
-      modelUsed: 'calyvia-institutional-copilot-v1-grounded',
+      modelUsed: 'calyvia-institutional-copilot-v2-intent',
       toolsExecuted,
       roleAuthorized: userRole,
       contextModule: dto.contextModule || null,
       generatedAt,
+      intent: intent.id,
+      confidence: intent.confidence,
       groundedInLiveData: toolsExecuted.some((tool) =>
         [
           'get_dashboard_summary',
@@ -142,7 +133,7 @@ export class AiExtensionService {
         lowerMessage,
       ) && !/protocol|what is|policy|module|guideline/i.test(lowerMessage);
 
-    if (clinicalRequest) {
+    if (intent.id === 'clinical_safety' || clinicalRequest) {
       return {
         success: true,
         reply:
@@ -159,18 +150,32 @@ export class AiExtensionService {
         ],
         referencedModules: ['clinical', 'detox', 'pharmacy'],
         timestamp: generatedAt,
-        meta: { ...meta(), toolsExecuted: ['clinical_safety_guard'] },
+        meta: { ...meta(), toolsExecuted: [...toolsExecuted, 'clinical_safety_guard'] },
+      };
+    }
+
+    // If two topics are almost equally likely, ask instead of guessing.
+    if (intent.needsClarification && intent.alternatives.length > 0) {
+      const options = [intent.label, ...intent.alternatives.map((alternative) => alternative.label)];
+      toolsExecuted.push('intent_clarification');
+
+      return {
+        success: true,
+        reply:
+          `### 🤔 I need one quick clarification\n\n` +
+          `I found more than one possible topic in your question: **${options.join('** or **')}**.\n\n` +
+          `* I have not guessed a figure or opened a clinical record.*\n` +
+          `* Tell me which topic you meant and I will check the live data.*` +
+          contextNote,
+        suggestedFollowUps: options.slice(0, 3),
+        referencedModules: [],
+        timestamp: generatedAt,
+        meta: { ...meta(), toolsExecuted },
       };
     }
 
     // 2. Operational summary — live executive metrics only.
-    if (
-      lowerMessage.includes('summary') ||
-      lowerMessage.includes('operational') ||
-      lowerMessage.includes('overview') ||
-      lowerMessage.includes('happening today') ||
-      lowerMessage.includes('status')
-    ) {
+    if (intent.id === 'operational_summary') {
       toolsExecuted.push('get_dashboard_summary');
       referencedModules.push('dashboard', 'detox', 'rooms');
       const metrics = (await this.toolsService.getDashboardSummary(userRole)).data;
@@ -196,12 +201,7 @@ export class AiExtensionService {
       ];
     }
     // 3. Appointments — live schedule rows.
-    else if (
-      lowerMessage.includes('appointment') ||
-      lowerMessage.includes('schedule') ||
-      lowerMessage.includes('calendar') ||
-      lowerMessage.includes('session')
-    ) {
+    else if (intent.id === 'appointments') {
       toolsExecuted.push('get_appointments_summary');
       referencedModules.push('appointments', 'clinical', 'counselling');
       const appts = (await this.toolsService.getAppointmentsSummary(userRole)).data;
@@ -232,13 +232,7 @@ export class AiExtensionService {
       ];
     }
     // 4. Census — totals from live bed records, no invented ward capacities.
-    else if (
-      lowerMessage.includes('census') ||
-      lowerMessage.includes('bed') ||
-      lowerMessage.includes('room') ||
-      lowerMessage.includes('ward') ||
-      lowerMessage.includes('occupancy')
-    ) {
+    else if (intent.id === 'census') {
       toolsExecuted.push('get_patient_statistics');
       referencedModules.push('rooms', 'patients', 'detox');
       const stats = (await this.toolsService.getPatientStatistics(userRole)).data;
@@ -258,15 +252,7 @@ export class AiExtensionService {
       ];
     }
     // 5. Billing — role-checked by the tool, figures from recorded payments.
-    else if (
-      lowerMessage.includes('billing') ||
-      lowerMessage.includes('invoice') ||
-      lowerMessage.includes('revenue') ||
-      lowerMessage.includes('mpesa') ||
-      lowerMessage.includes('m-pesa') ||
-      lowerMessage.includes('payment') ||
-      lowerMessage.includes('daraja')
-    ) {
+    else if (intent.id === 'billing') {
       toolsExecuted.push('get_billing_summary');
       referencedModules.push('billing', 'reports');
       const billingRes = await this.toolsService.getBillingSummary(userRole);
@@ -291,14 +277,7 @@ export class AiExtensionService {
       ];
     }
     // 6. Detox protocols — from the institutional protocol catalog.
-    else if (
-      lowerMessage.includes('detox') ||
-      lowerMessage.includes('ciwa') ||
-      lowerMessage.includes('cows') ||
-      lowerMessage.includes('withdrawal') ||
-      lowerMessage.includes('alcohol') ||
-      lowerMessage.includes('opioid')
-    ) {
+    else if (intent.id === 'detox_protocol') {
       toolsExecuted.push('get_institutional_protocols');
       referencedModules.push('detox', 'clinical', 'pharmacy');
       const protocols = (await this.toolsService.getInstitutionalProtocols()).data || {};
@@ -328,14 +307,7 @@ export class AiExtensionService {
       ];
     }
     // 7. Staff — live directory instead of a hardcoded roster.
-    else if (
-      lowerMessage.includes('staff') ||
-      lowerMessage.includes('doctor') ||
-      lowerMessage.includes('nurse') ||
-      lowerMessage.includes('therapist') ||
-      lowerMessage.includes('roster') ||
-      lowerMessage.includes('who is on duty')
-    ) {
+    else if (intent.id === 'staff') {
       toolsExecuted.push('get_staff_workload');
       referencedModules.push('staff', 'clinical');
       const staffResult = await this.toolsService.getStaffWorkload(userRole);
@@ -367,15 +339,7 @@ export class AiExtensionService {
       ];
     }
     // 8. Navigation — module catalog search instead of invented examples.
-    else if (
-      lowerMessage.includes('how do i') ||
-      lowerMessage.includes('where is') ||
-      lowerMessage.includes('module') ||
-      lowerMessage.includes('help') ||
-      lowerMessage.includes('navigate') ||
-      lowerMessage.includes('admit') ||
-      lowerMessage.includes('register')
-    ) {
+    else if (intent.id === 'navigation') {
       toolsExecuted.push('get_application_help');
       referencedModules.push('crm', 'patients', 'billing', 'appointments');
       const help = this.toolsService.getApplicationHelp(this.moduleSearchQuery(originalMessage));

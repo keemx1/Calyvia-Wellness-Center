@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsNotEmpty,
@@ -38,6 +39,7 @@ export class AiChatRequestDto {
   @ApiPropertyOptional({ type: [AiChatMessageDto], description: 'Recent conversation history for conversational context' })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @ValidateNested({ each: true })
   @Type(() => AiChatMessageDto)
   conversationHistory?: AiChatMessageDto[];
@@ -73,5 +75,7 @@ export class AiChatResponseDto {
     contextModule?: string | null;
     generatedAt?: string;
     groundedInLiveData?: boolean;
+    intent?: string;
+    confidence?: number;
   };
 }

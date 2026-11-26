@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { AiExtensionService } from './ai-extension.service';
 import { AiInstitutionalToolsService } from './ai-institutional-tools.service';
+import { AiIntentService } from './ai-intent.service';
 import { AuditService } from '../audit/audit.service';
 import { UserRole } from '@calyvia/shared';
 
@@ -79,6 +80,7 @@ describe('AiExtensionService (Institutional Intelligence & Clinical Safety)', ()
         AiExtensionService,
         { provide: AiInstitutionalToolsService, useValue: mockToolsService },
         { provide: AuditService, useValue: mockAuditService },
+        AiIntentService,
       ],
     }).compile();
 
@@ -183,5 +185,55 @@ describe('AiExtensionService (Institutional Intelligence & Clinical Safety)', ()
 
     expect(res.reply).toContain('3,840,000');
     expect(res.suggestedFollowUps).toContain('Summarize outstanding invoices and billing');
+  });
+
+  it('resolves conversational aliases such as "money side" to the billing tool', async () => {
+    const res = await service.processChat(
+      { message: 'what about the money side?' },
+      { id: 'user-finance', role: UserRole.FINANCE_BILLING, fullName: 'Billing Officer' },
+    );
+
+    expect(mockToolsService.getBillingSummary).toHaveBeenCalled();
+    expect(res.reply).toContain('Billing & Financial Performance');
+    expect(res.meta?.intent).toBe('billing');
+  });
+
+  it('tolerates typos in intent matching', async () => {
+    const res = await service.processChat(
+      { message: 'appoinments today?' },
+      { id: 'user-nurse', role: UserRole.NURSE, fullName: 'Nurse Linet' },
+    );
+
+    expect(mockToolsService.getAppointmentsSummary).toHaveBeenCalled();
+    expect(res.meta?.intent).toBe('appointments');
+  });
+
+  it('inherits the previous intent for context-only follow-ups', async () => {
+    const res = await service.processChat(
+      {
+        message: 'show me that again',
+        conversationHistory: [
+          { role: 'user', content: 'Give me today\'s operational summary' },
+          { role: 'assistant', content: 'Here is the operational summary.' },
+        ],
+      },
+      { id: 'user-admin', role: UserRole.SUPER_ADMIN, fullName: 'Admin' },
+    );
+
+    expect(mockToolsService.getDashboardSummary).toHaveBeenCalled();
+    expect(res.meta?.toolsExecuted).toContain('conversation_context');
+    expect(res.meta?.intent).toBe('operational_summary');
+  });
+
+  it('asks for clarification when two intents are equally likely', async () => {
+    const res = await service.processChat(
+      { message: 'billing and appointments' },
+      { id: 'user-admin', role: UserRole.SUPER_ADMIN, fullName: 'Admin' },
+    );
+
+    expect(res.reply).toContain('clarification');
+    expect(mockToolsService.getBillingSummary).not.toHaveBeenCalled();
+    expect(mockToolsService.getAppointmentsSummary).not.toHaveBeenCalled();
+    expect(res.meta?.toolsExecuted).toContain('intent_clarification');
   });
 });
