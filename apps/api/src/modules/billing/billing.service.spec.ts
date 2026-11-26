@@ -128,17 +128,18 @@ describe('BillingService (Invoicing Center)', () => {
     );
   });
 
-  it('keeps walk-in bill-to details on the invoice notes', async () => {
+  it('keeps separate SMS and WhatsApp numbers on the invoice notes', async () => {
     await service.createInvoice({
       billToName: 'Jane Doe',
       billToPhone: '0703377395',
+      whatsappNumber: '0723456789',
       items: [{ description: 'Consultation', quantity: 1, unitPriceKES: 2500 }],
     });
 
     expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          notes: expect.stringContaining('Bill to: Jane Doe'),
+          notes: expect.stringContaining('Phone: 0703377395 | WhatsApp: 0723456789'),
         }),
       }),
     );

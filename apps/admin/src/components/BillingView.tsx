@@ -52,6 +52,9 @@ const pick = (row: any, ...keys: string[]) => {
   return null;
 };
 
+const noteValue = (notes: any, label: string): string | null =>
+  String(notes ?? '').match(new RegExp(`${label}:\\s*([^|]+)`, 'i'))?.[1]?.trim() || null;
+
 const money = (value: any) =>
   `KES ${Number(value ?? 0).toLocaleString('en-KE', {
     minimumFractionDigits: 2,
@@ -90,6 +93,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
   const [form, setForm] = useState({
     billToName: '',
     billToPhone: '',
+    whatsappNumber: '',
     patientId: '',
     admissionId: '',
     dueDate: '',
@@ -241,6 +245,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
           dueDate: form.dueDate || undefined,
           billToName: form.billToName || undefined,
           billToPhone: form.billToPhone || undefined,
+          whatsappNumber: form.whatsappNumber || undefined,
           items: cleanItems,
         }),
       });
@@ -249,6 +254,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
       setForm({
         billToName: '',
         billToPhone: '',
+        whatsappNumber: '',
         patientId: '',
         admissionId: '',
         dueDate: '',
@@ -600,8 +606,13 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
                         {pick(invoice, 'billToName') || 'Patient account'}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        {pick(invoice, 'billToPhone') || 'No phone on file'}
+                        SMS: {pick(invoice, 'billToPhone') || '—'}
                       </p>
+                      {noteValue(pick(invoice, 'notes'), 'WhatsApp') && (
+                        <p className="text-[10px] text-muted-foreground">
+                          WhatsApp: {noteValue(pick(invoice, 'notes'), 'WhatsApp')}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {shortDate(pick(invoice, 'issueDate', 'issue_date', 'createdAt'))}
@@ -649,7 +660,9 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
                           onClick={() =>
                             setSendModal({
                               invoice,
-                              recipient: String(pick(invoice, 'billToPhone') ?? ''),
+                              recipient:
+                                noteValue(pick(invoice, 'notes'), 'WhatsApp') ||
+                                String(pick(invoice, 'billToPhone') ?? ''),
                             })
                           }
                           disabled={busy}
@@ -696,11 +709,22 @@ export const BillingView: React.FC<BillingViewProps> = ({ token, apiUrl, refresh
               />
             </label>
             <label className="block text-xs">
-              <span className="block font-semibold text-foreground mb-1.5">Phone (WhatsApp/SMS)</span>
+              <span className="block font-semibold text-foreground mb-1.5">SMS phone number</span>
               <input
                 value={form.billToPhone}
                 onChange={(e) => setForm({ ...form, billToPhone: e.target.value })}
                 placeholder="0712345678"
+                className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="block font-semibold text-foreground mb-1.5">
+                WhatsApp number <span className="font-normal text-muted-foreground">(optional)</span>
+              </span>
+              <input
+                value={form.whatsappNumber}
+                onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
+                placeholder="0723456789"
                 className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary focus:outline-none"
               />
             </label>

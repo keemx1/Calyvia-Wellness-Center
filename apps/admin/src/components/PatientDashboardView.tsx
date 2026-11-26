@@ -89,6 +89,8 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
     description: '',
     quantity: '1',
     unitPriceKES: '',
+    smsPhone: '',
+    whatsappNumber: '',
     dueDate: '',
     discount: '0',
     notes: '',
@@ -147,6 +149,18 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
       ) || contacts[0]
     );
   }, [patient]);
+
+  useEffect(() => {
+    setInvoiceForm((current) => ({
+      ...current,
+      smsPhone:
+        current.smsPhone ||
+        String(pick(guardian, 'phone') || pick(patient, 'phone') || ''),
+      whatsappNumber:
+        current.whatsappNumber ||
+        String(pick(guardian, 'alternativePhone') || pick(guardian, 'phone') || ''),
+    }));
+  }, [guardian, patient]);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -228,10 +242,8 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
         body: JSON.stringify({
           patientId,
           billToName: name,
-          billToPhone:
-            pick(guardian, 'phone') || pick(guardian, 'alternativePhone') || pick(patient, 'phone') || undefined,
-          whatsappNumber:
-            pick(guardian, 'alternativePhone') || pick(guardian, 'phone') || undefined,
+          billToPhone: invoiceForm.smsPhone.trim() || undefined,
+          whatsappNumber: invoiceForm.whatsappNumber.trim() || undefined,
           items: [
             {
               description: invoiceForm.description.trim() || 'Treatment service',
@@ -245,7 +257,16 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
         }),
       } as RequestInit);
       setInvoiceOpen(false);
-      setInvoiceForm({ description: '', quantity: '1', unitPriceKES: '', dueDate: '', discount: '0', notes: '' });
+      setInvoiceForm({
+        description: '',
+        quantity: '1',
+        unitPriceKES: '',
+        smsPhone: '',
+        whatsappNumber: '',
+        dueDate: '',
+        discount: '0',
+        notes: '',
+      });
       setNotice({
         type: 'success',
         text: `Invoice ${pick(created, 'invoiceNumber', 'invoice_number') || 'created'} added to the billing section.`,
@@ -542,6 +563,26 @@ export const PatientDashboardView: React.FC<PatientDashboardViewProps> = ({
                         onChange={(e) => setInvoiceForm({ ...invoiceForm, unitPriceKES: e.target.value })}
                         placeholder="45000"
                         className="w-full bg-surface border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">SMS phone number</span>
+                      <input
+                        value={invoiceForm.smsPhone}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, smsPhone: e.target.value })}
+                        placeholder="0712345678"
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:outline-none focus:border-primary"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="block font-semibold text-foreground mb-1.5">
+                        WhatsApp number <span className="font-normal text-muted-foreground">(optional)</span>
+                      </span>
+                      <input
+                        value={invoiceForm.whatsappNumber}
+                        onChange={(e) => setInvoiceForm({ ...invoiceForm, whatsappNumber: e.target.value })}
+                        placeholder="0723456789"
+                        className="w-full bg-surface border border-border rounded-xl p-2.5 font-mono text-xs text-foreground focus:outline-none focus:border-primary"
                       />
                     </label>
                     <label className="block text-xs">
