@@ -604,8 +604,16 @@ export class MpesaService {
         this.patientName(patient) ||
         'Client';
 
+      const smsRecipient = await this.resolveSmsRecipient(context, patient);
+      if (!smsRecipient) {
+        this.logger.warn(
+          `Skipped M-Pesa SMS receipt for ${context.invoiceNumber}: no SMS recipient on file.`,
+        );
+        return;
+      }
+
       await this.communication.sendMessage({
-        recipient: context.phone,
+        recipient: smsRecipient,
         channel: CommunicationChannel.SMS,
         templateKey: 'PAYMENT_RECEIPT',
         recipientType: 'PATIENT',
@@ -623,6 +631,32 @@ export class MpesaService {
       // Safaricom retry the callback and create a duplicate payment.
       this.logger.warn(`M-Pesa receipt message was not delivered: ${err?.message || 'unknown error'}`);
     }
+  }
+
+  private async resolveSmsRecipient(
+    context: MpesaPaymentContext,
+    patient: any,
+  ): Promise<string> {
+    const notePhone = this.noteValue(context.notes, 'Phone');
+    if (notePhone) return notePhone;
+
+    if (context.patientId && this.prisma.emergencyContact?.findMany) {
+      const guardians = await this.prisma.emergencyContact.findMany({
+        where: { patientId: context.patientId, relationship: 'GUARDIAN' },
+      });
+      const guardianPhone = this.invoiceValue(
+        (guardians ?? [])[0],
+        'phone',
+        'alternativePhone',
+        'alternative_phone',
+      );
+      if (guardianPhone) return String(guardianPhone);
+    }
+
+    const patientPhone = this.invoiceValue(patient, 'phone');
+    if (patientPhone) return String(patientPhone);
+
+    return context.phone || '';
   }
 
   private async resolveWhatsappRecipient(

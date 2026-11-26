@@ -216,6 +216,8 @@ describe('MpesaService (Daraja STK Push)', () => {
     );
     expect(communication.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
+        recipient: '0703377395',
+        channel: 'SMS',
         templateKey: 'PAYMENT_RECEIPT',
         variables: expect.objectContaining({
           patient_name: 'Jane Doe',
