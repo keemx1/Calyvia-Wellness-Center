@@ -202,6 +202,11 @@ export class CommunicationService implements OnModuleInit {
     return getBaileysGateway().getStatus();
   }
 
+  /** Network handshake probe for diagnosing a persistent 428 close loop. */
+  getWhatsAppDiagnostics() {
+    return getBaileysGateway().diagnose();
+  }
+
   /** Request a WhatsApp pairing code for a phone number (headless linking). */
   async requestWhatsAppPairing(phone: string) {
     const normalized = KenyaUtils.normalizePhoneNumber(phone);

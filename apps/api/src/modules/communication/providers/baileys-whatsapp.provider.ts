@@ -46,6 +46,7 @@ export class BaileysWhatsAppGateway {
   private qr: string | null = null;
   private pairingCode: string | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
   private starting: Promise<void> | null = null;
   /** Why the socket last closed — surfaced via getStatus() for diagnosis. */
   private lastDisconnect: { statusCode: number | null; message: string | null; at: string } | null =
@@ -182,6 +183,8 @@ export class BaileysWhatsAppGateway {
     }
 
     if (connection === 'open') {
+      // A healthy session resets the backoff so a later drop retries promptly.
+      this.reconnectAttempts = 0;
       this.status = 'open';
       this.qr = null;
       this.pairingCode = null;
@@ -270,14 +273,26 @@ export class BaileysWhatsAppGateway {
     });
   }
 
+  /**
+   * Exponential backoff (5s → 10s → 20s → … → 5min, plus jitter). WhatsApp
+   * treats rapid repeated registration attempts as abuse and answers 428; a
+   * fixed 5s loop makes a transient failure permanent.
+   */
+  private reconnectDelayFor(attempt: number): number {
+    const base = Math.min(5_000 * 2 ** Math.min(Math.max(attempt, 0), 6), 300_000);
+    return base + Math.floor(Math.random() * 1000);
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    const delay = this.reconnectDelayFor(this.reconnectAttempts++);
+    this.logger.warn(`Scheduling WhatsApp reconnect in ${Math.round(delay / 1000)}s.`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.start().catch((err: any) =>
         this.logger.error(`WhatsApp reconnect failed: ${err?.message || err}`),
       );
-    }, 5_000);
+    }, delay);
   }
 
   /**
@@ -334,6 +349,81 @@ export class BaileysWhatsAppGateway {
     const jid = toWhatsAppJid(to);
     const sent = await this.sock.sendMessage(jid, { text: body });
     return { messageId: sent?.key?.id ?? null };
+  }
+
+  /**
+   * Network probe used when the socket keeps closing before a QR. It separates
+   * "the VPS cannot reach WhatsApp" from "Baileys/WhatsApp rejected the client".
+   * No credentials are involved and no session is created.
+   */
+  async diagnose() {
+    const out: Record<string, unknown> = {
+      at: new Date().toISOString(),
+      node: process.version,
+      authDir: this.authDir,
+      // Names only — never echo proxy credentials/URLs.
+      proxyEnv: ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'].filter(
+        (k) => !!process.env[k],
+      ),
+      session: this.getStatus(),
+    };
+
+    try {
+      const dns: any = await import('dns');
+      const addresses = await dns.promises.lookup('web.whatsapp.net', { all: true });
+      out.dns = addresses.map((a: any) => ({ family: a.family, address: a.address }));
+    } catch (err: any) {
+      out.dns = { error: err?.message || String(err) };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      try {
+        const res = await fetch('https://web.whatsapp.net/', { signal: controller.signal });
+        out.https = { status: res.status };
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err: any) {
+      out.https = { error: err?.message || String(err) };
+    }
+
+    try {
+      // Dynamic specifier keeps this optional at compile time (no @types/ws).
+      const specifier = 'ws';
+      const mod: any = await import(specifier);
+      const WebSocket = mod.default || mod;
+      out.websocket = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (result: Record<string, unknown>) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try {
+            ws.terminate();
+          } catch {
+            /* already closed */
+          }
+          resolve(result);
+        };
+        const timer = setTimeout(() => finish({ error: 'no websocket open within 8s' }), 8_500);
+        const ws = new WebSocket('wss://web.whatsapp.net/ws', {
+          origin: 'https://web.whatsapp.com',
+          handshakeTimeout: 8_000,
+        });
+        ws.once('open', () => finish({ open: true }));
+        ws.once('unexpected-response', (_req: unknown, res: any) =>
+          finish({ httpStatus: res?.statusCode ?? null }),
+        );
+        ws.once('error', (err: any) => finish({ error: err?.message || String(err) }));
+        ws.once('close', (code: number) => finish({ closeCode: code }));
+      });
+    } catch (err: any) {
+      out.websocket = { error: err?.message || String(err) };
+    }
+
+    return out;
   }
 
   getStatus() {

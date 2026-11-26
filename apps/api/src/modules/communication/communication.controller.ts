@@ -74,6 +74,17 @@ export class CommunicationController {
     return this.communicationService.getWhatsAppStatus();
   }
 
+  @Get('whatsapp/diagnostics')
+  @ApiOperation({
+    summary: 'Probe DNS, HTTPS and WebSocket access to WhatsApp from the API container',
+    description:
+      'Use when the session closes with 428 before a QR appears. No credentials are returned ' +
+      'and no WhatsApp session is created.',
+  })
+  getWhatsAppDiagnostics() {
+    return this.communicationService.getWhatsAppDiagnostics();
+  }
+
   @Post('whatsapp/pair')
   @ApiOperation({
     summary: 'Request a WhatsApp pairing code for a phone number (no QR scan needed)',

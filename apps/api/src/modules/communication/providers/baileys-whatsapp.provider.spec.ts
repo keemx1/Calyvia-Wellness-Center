@@ -135,6 +135,19 @@ describe('BaileysWhatsAppGateway', () => {
     }
   });
 
+  it('backs off exponentially instead of hammering WhatsApp with reconnects', () => {
+    const gw = makeGateway();
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      expect((gw as any).reconnectDelayFor(0)).toBe(5_000);
+      expect((gw as any).reconnectDelayFor(1)).toBe(10_000);
+      expect((gw as any).reconnectDelayFor(3)).toBe(40_000);
+      expect((gw as any).reconnectDelayFor(99)).toBe(300_000);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   it('fails a pending pairing request immediately when the socket closes with 428', async () => {
     const gw = makeGateway();
     const waiting = (gw as any).waitForQr(5000);
