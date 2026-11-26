@@ -534,6 +534,8 @@ export class ByteWaveSmsProvider implements SmsProvider {
     if (!res || typeof res !== 'object') return null;
     const candidates = [
       res[idField],
+      res.uid,
+      res?.data?.uid,
       res.messageId,
       res.message_id,
       res.message_id_no,
