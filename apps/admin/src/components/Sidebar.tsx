@@ -177,14 +177,13 @@ export const NAVIGATION_STRUCTURE: NavigationSection[] = [
     modules: [
       {
         id: 'system_admin',
-        name: 'Administration & Intelligence',
+        name: 'Administration',
         icon: Sliders,
         submodules: [
           { id: 'system_admin', name: 'System Settings' },
           { id: 'security', name: 'User Accounts & Security' },
           { id: 'integrations', name: 'Integrations & Webhooks' },
           { id: 'automation', name: 'Workflow Automation' },
-          { id: 'ai_extension', name: 'AI Assistant & Intelligence' },
         ],
       },
     ],

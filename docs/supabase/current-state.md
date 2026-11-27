@@ -63,7 +63,7 @@ The application codebase is structured as a TypeScript monorepo:
 | **25** | **System Admin** | `SystemSetting` | `GET /system-admin/facility-config`, `POST /system-admin/settings` | Implemented & Verified. Master facility configuration, parameter overrides. | Direct table with `SUPER_ADMIN` write protection. |
 | **26** | **Integrations** | `MpesaTransaction`, `Lead` | `POST /integrations/mpesa/callback`, `POST /integrations/webhook/website-lead` | Implemented & Verified. Safaricom Daraja STK webhook receiver, website lead hook. | Supabase Edge Functions with service-role database access. |
 | **27** | **Automation** | N/A | `POST /automation/jobs/vitals-monitor`, `POST /automation/jobs/aftercare-cadence` | Implemented & Verified. Scheduled maintenance and alert dispatch triggers. | Supabase `pg_cron` + scheduled database procedures. |
-| **28** | **Future AI Features** | N/A | `POST /ai-extension/summaries/patient-record`, `POST /ai-extension/recommendations/follow-up` | Implemented & Verified. Extensible boundary contracts behind feature flags. | Edge Functions calling LLM endpoints. |
+| **28** | **Future AI Features** | N/A | None | Removed at client request; no AI endpoints or UI remain. | Not applicable. |
 
 ---
 

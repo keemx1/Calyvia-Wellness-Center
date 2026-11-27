@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 describe('PWA Manifest & Service Worker Compliance', () => {
-  const rootDir = path.resolve(__dirname, '../../../../../');
+  const rootDir = path.resolve(__dirname, '../../../../');
   const manifestPath = path.join(rootDir, 'apps/admin/public/manifest.webmanifest');
   const swPath = path.join(rootDir, 'apps/admin/public/sw.js');
   const publicDir = path.join(rootDir, 'apps/admin/public');

@@ -43,12 +43,11 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { AutomationModule } from './modules/automation/automation.module';
 
-// Intelligence & Governance
+// Governance
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SystemAdminModule } from './modules/system-admin/system-admin.module';
 import * as path from 'path';
-import { AiExtensionModule } from './modules/ai-extension/ai-extension.module';
 
 @Module({
   imports: [
@@ -104,7 +103,6 @@ import { AiExtensionModule } from './modules/ai-extension/ai-extension.module';
     DashboardModule,
     ReportsModule,
     SystemAdminModule,
-    AiExtensionModule,
   ],
   controllers: [AppController],
   providers: [

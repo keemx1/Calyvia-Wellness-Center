@@ -13,13 +13,13 @@ The system is **fundamentally functional** for the core clinical, admissions, bi
 
 The client-facing picture is now honest:
 
-- **Working:** authentication, patient registry, admissions intake, billing/invoices with the official letterhead, M-Pesa confirmation flow, ByteWave SMS, WhatsApp invoice PDFs, templates, reports, audit logs, facility config, role-based navigation, and deterministic AI operational queries.
+- **Working:** authentication, patient registry, admissions intake, billing/invoices with the official letterhead, M-Pesa confirmation flow, ByteWave SMS, WhatsApp invoice PDFs, templates, reports, audit logs, facility config, and role-based navigation.
 - **Empty by design:** several modules returned empty arrays from production because no records have been entered yet. Empty is not the same as broken.
-- **Stubbed / not implemented:** automation scheduling, AI phases 4–6, CIWA/COWS capture, clinical-outcome tracking, forced password-change enforcement, deep dependency health checks, and header alert feed are explicitly reported as unavailable rather than shown as successful.
+- **Stubbed / not implemented:** automation scheduling, CIWA/COWS capture, clinical-outcome tracking, forced password-change enforcement, deep dependency health checks, and header alert feed are explicitly reported as unavailable rather than shown as successful.
 - **Dev/test only:** mock SMS and mock WhatsApp drivers remain in the codebase for tests but are blocked in production. Synthetic seed SQL is explicitly UAT/dev only.
 - **Unsafe/blocked:** M-Pesa credential rotation still needs confirmation and public write endpoints still need abuse controls before open launch. Production test/mock records have been deleted.
 
-All local validation passes: **22 test suites / 179 tests**, API build clean, admin TypeScript clean, admin production build clean, admin lint **0 errors**, API lint **0 errors**.
+All local validation passes: **20 test suites / 161 tests**, API build clean, admin TypeScript clean, admin production build clean, admin lint **0 errors**, API lint **0 errors**.
 
 **Current code is not yet deployed.** The latest fixes are committed locally but not pushed or redeployed. Do not hand over the new build until credential rotation and endpoint-abuse decisions below are closed.
 
@@ -30,7 +30,7 @@ All local validation passes: **22 test suites / 179 tests**, API build clean, ad
 | Area | What was verified | Evidence / notes |
 | :--- | :--- | :--- |
 | Authentication | Login `200`, `/auth/me` `200`, JWT access/refresh secrets required in production | Hardcoded bootstrap-admin bypass, fake Supabase identity, and dev JWT fallbacks removed. |
-| RBAC | Navigation and API access role-scoped | `RolesGuard` now fails closed; every guarded route has an explicit `@Roles()` policy. AI is additionally gated by `canAccessModule(role, 'ai_extension')`. |
+| RBAC | Navigation and API access role-scoped | `RolesGuard` now fails closed; every guarded route has an explicit `@Roles()` policy. |
 | Patient registry | Registration, guardian/SMS phone/WhatsApp number/email capture, safe archive deletion | Guardian stored as `emergency_contacts` relationship `GUARDIAN`; active admissions block deletion; records preserved via `is_archived`. |
 | Patient dashboard | Details, guardian, billing, medication, optional Supabase photos | Medications join `prescriptions → admissions → prescription_items → medications`; no invented `patient_id` column. |
 | Billing | Manual/auto invoices, official Calyvia letterhead PDF, separate SMS phone and WhatsApp fields, delete actions, failed deliveries in red | Invoice metadata encoded in `invoices.notes` (`Bill to`, `Phone`, `WhatsApp`, `Source`); no DB migration required. Deletion removes payments/line items first. |
@@ -43,7 +43,6 @@ All local validation passes: **22 test suites / 179 tests**, API build clean, ad
 | Reports | Financial and clinical-outcome endpoints live; CSV export downloads real data | Fabricated `+14.2%` and `0.0%` placeholders removed; untracked outcomes return `null`. |
 | Audit log | UI wired to `/audit-logs`; fabricated localhost session row removed | Read from real API. |
 | Facility config | UI wired to `/system-admin/facility-config`; hardcoded partner-hospital/database claims removed | Legal compliance flags now `null` / `NOT_VERIFIED`. |
-| AI status | UI wired to `/ai-extension/status` | Claims of “Pooler Active” and blanket KDPA compliance removed. |
 | Documents | Sidebar submenu maps documents/discharge/aftercare to matching tab | `initialTab` wiring completed; fabricated doctor default removed. |
 | Appointments | Real booking errors surfaced; clinician select uses loaded staff | Static `Dr. Evelyn Wanjiku` default removed from booking UI. |
 | CRM / Clinical / Pharmacy | New Lead, Admit Patient, Append Clinical Note, and Issue Prescription now write through real APIs | Previously alert-only actions replaced with validated forms and real error handling. |
@@ -73,8 +72,6 @@ These features are now explicitly reported as unavailable rather than disguised 
 
 | Feature | Current honest state |
 | :--- | :--- |
-| AI multi-intent composition, action buttons, feedback logging | Phases 4–6 not implemented. |
-| AI patient-record summary / follow-up extension points | Return `NOT_IMPLEMENTED` / `DISABLED`. `ENABLE_AI_EXTENSIONS=false` currently only affects these points. |
 | Automation jobs | Manual evaluation endpoints report `NOT_CONFIGURED`, zero dispatches, `NOT SCHEDULED`, `Queue: not configured`. No fake patient names or completed jobs. |
 | CIWA-Ar / COWS assessment | Reference display only. Scores are not captured or persisted to patient records; use the paper protocol and record observations through clinical notes. |
 | Header clinical alerts | `not tracked`. Automated vitals alerting is not implemented. |
@@ -117,9 +114,9 @@ These features are now explicitly reported as unavailable rather than disguised 
 ## 7. Changes in this final pass
 
 - `RolesGuard` changed from fail-open to **fail closed**; explicit roles added to every previously undecorated guarded route.
-- AI endpoints now require an authenticated role with `ai_extension` module access.
+- AI assistant and AI backend module removed at client request; no AI UI, endpoints, role permissions, or feature flag remain.
 - SMS template UI made read-only for non-`SUPER_ADMIN`; server restriction was already present.
-- Wired real API writes for leads, admissions, clinical notes, prescriptions, document tabs, appointment clinician selection, reports, audit logs, facility config, and AI status.
+- Wired real API writes for leads, admissions, clinical notes, prescriptions, document tabs, appointment clinician selection, reports, audit logs, and facility config.
 - Removed fake appointment fallback, static report percentages, fabricated audit row, hardcoded partner/database claims, and false compliance labels.
 - Header notification center now reports the real tracked state instead of “all vitals normal”.
 - Dashboard returns `null` for untracked ward/vitals/outcome metrics and filters M-Pesa revenue to the current month.
@@ -136,10 +133,10 @@ These features are now explicitly reported as unavailable rather than disguised 
 | :--- | :--- |
 | `npx tsc --noEmit -p apps/admin/tsconfig.json` | Pass |
 | `npm run build --workspace=@calyvia/api` | Pass |
-| `npm test --workspace=@calyvia/api -- --runInBand` | **22 suites / 179 tests passed** |
+| `npm test --workspace=@calyvia/api -- --runInBand` | **20 suites / 161 tests passed** |
 | `npm run lint --workspace=@calyvia/admin` | **0 errors**, 6 warnings |
 | `npm run build --workspace=@calyvia/admin` | Pass |
-| API ESLint | **0 errors**, 495 warnings |
+| API ESLint | **0 errors**, 474 warnings |
 | `git diff --check` | No whitespace errors (line-ending notices only) |
 
 ---
@@ -153,7 +150,7 @@ Before marking the new build client-ready:
 3. Decide whether public feedback/website-lead endpoints need rate limiting before launch.
 4. Commit and push the working tree.
 5. Redeploy API and admin only after the above.
-6. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, audit, AI status.
+6. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, and audit.
 
 **Current pushed baseline:** `3be3331`.  
 **Current state:** newer fixes and test-data cleanup are committed locally; not pushed or redeployed.

@@ -46,7 +46,7 @@ In accordance with clinic safety, statutory compliance (KDPA 2019), and financia
 5. **P2-5 CMS Content Management:** Portal editor for Careers/Vacancies, Blog articles, and Announcements with draft/publish workflows.
 
 ### Priority 3 (Future & Deferred Scope)
-1. **P3-1 AI Clinical Summarisation & Insights:** Retain feature-flagged abstraction contracts only; no direct LLM execution.
+1. **P3-1 AI Clinical Summarisation & Insights:** Removed at client request; no abstraction contracts, endpoints, or feature flag remain.
 2. **P3-2 Drag-and-Drop Form Builder:** Deferred to future phase.
 3. **P3-3 External Laboratory Integration:** Stubs maintained.
 

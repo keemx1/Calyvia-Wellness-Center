@@ -240,7 +240,6 @@ export enum Permission {
   SECURITY_AUDIT_VIEW = 'security.audit.view',
   SYSTEM_SETTINGS_MANAGE = 'system_settings.manage',
   INTEGRATIONS_MANAGE = 'integrations.manage',
-  AI_COPILOT_USE = 'ai_copilot.use',
 }
 
 export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
@@ -263,23 +262,23 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, string[]> = {
     'clinical', 'detox', 'counselling', 'appointments', 'pharmacy', 'rooms',
     'billing', 'movement', 'incidents', 'staff', 'tasks', 'inventory',
     'discharge', 'aftercare', 'communication', 'feedback',
-    'security', 'system_admin', 'integrations', 'automation', 'ai_extension'
+    'security', 'system_admin', 'integrations', 'automation'
   ],
   [UserRole.FACILITY_ADMIN]: [
     'dashboard', 'reports', 'patients', 'crm', 'family', 'referrals', 'documents',
     'billing', 'movement', 'incidents', 'staff', 'tasks', 'inventory',
     'discharge', 'aftercare', 'communication', 'feedback',
-    'security', 'system_admin', 'integrations', 'automation', 'ai_extension'
+    'security', 'system_admin', 'integrations', 'automation'
   ],
   [UserRole.MEDICAL_DIRECTOR]: [
     'dashboard', 'reports', 'patients', 'clinical', 'detox', 'counselling',
     'appointments', 'pharmacy', 'rooms', 'incidents', 'staff', 'discharge',
-    'aftercare', 'security', 'ai_extension'
+    'aftercare', 'security'
   ],
   [UserRole.DOCTOR_PSYCHIATRIST]: [
     'dashboard', 'patients', 'clinical', 'detox', 'counselling',
     'appointments', 'pharmacy', 'rooms', 'discharge', 'aftercare',
-    'incidents', 'ai_extension'
+    'incidents'
   ],
   [UserRole.NURSE]: [
     'dashboard', 'patients', 'clinical', 'detox', 'pharmacy',
@@ -319,21 +318,21 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.MOVEMENT_LOG_MANAGE, Permission.INCIDENTS_MANAGE, Permission.STAFF_VIEW, Permission.STAFF_MANAGE,
     Permission.TASKS_MANAGE, Permission.INVENTORY_MANAGE, Permission.DISCHARGE_MANAGE, Permission.AFTERCARE_MANAGE,
     Permission.COMMUNICATION_MANAGE, Permission.FEEDBACK_MANAGE, Permission.SECURITY_AUDIT_VIEW,
-    Permission.SYSTEM_SETTINGS_MANAGE, Permission.INTEGRATIONS_MANAGE, Permission.AI_COPILOT_USE,
+    Permission.SYSTEM_SETTINGS_MANAGE, Permission.INTEGRATIONS_MANAGE,
   ],
   [UserRole.MEDICAL_DIRECTOR]: [
     Permission.DASHBOARD_VIEW, Permission.REPORTS_CLINICAL_VIEW, Permission.REPORTS_EXECUTIVE_VIEW,
     Permission.PATIENTS_VIEW, Permission.CLINICAL_RECORDS_VIEW, Permission.CLINICAL_RECORDS_CREATE, Permission.CLINICAL_RECORDS_UPDATE,
     Permission.DETOX_MANAGE, Permission.COUNSELLING_MANAGE, Permission.APPOINTMENTS_VIEW, Permission.APPOINTMENTS_MANAGE,
     Permission.PHARMACY_VIEW, Permission.ROOMS_BEDS_MANAGE, Permission.INCIDENTS_MANAGE, Permission.STAFF_VIEW,
-    Permission.DISCHARGE_MANAGE, Permission.AFTERCARE_MANAGE, Permission.SECURITY_AUDIT_VIEW, Permission.AI_COPILOT_USE,
+    Permission.DISCHARGE_MANAGE, Permission.AFTERCARE_MANAGE, Permission.SECURITY_AUDIT_VIEW,
   ],
   [UserRole.DOCTOR_PSYCHIATRIST]: [
     Permission.DASHBOARD_VIEW, Permission.PATIENTS_VIEW, Permission.PATIENTS_UPDATE,
     Permission.CLINICAL_RECORDS_VIEW, Permission.CLINICAL_RECORDS_CREATE, Permission.CLINICAL_RECORDS_UPDATE,
     Permission.DETOX_MANAGE, Permission.APPOINTMENTS_VIEW, Permission.APPOINTMENTS_MANAGE,
     Permission.PHARMACY_VIEW, Permission.ROOMS_BEDS_MANAGE, Permission.DISCHARGE_MANAGE,
-    Permission.AFTERCARE_MANAGE, Permission.INCIDENTS_MANAGE, Permission.AI_COPILOT_USE,
+    Permission.AFTERCARE_MANAGE, Permission.INCIDENTS_MANAGE,
   ],
   [UserRole.NURSE]: [
     Permission.DASHBOARD_VIEW, Permission.PATIENTS_VIEW,

@@ -54,7 +54,7 @@ All backend endpoints are mounted under `/api/v1` and documented via OpenAPI/Swa
 | **25. System Admin**| `/api/v1/system-admin` | `GET /facility-config`, `POST /settings` | Facility profile and operational parameter overrides. |
 | **26. Integrations** | `/api/v1/integrations` | `POST /mpesa/callback`, `POST /webhook/website-lead` | Safaricom Daraja callback handler, public lead webhook. |
 | **27. Automation** | `/api/v1/automation` | `POST /jobs/vitals-monitor`, `POST /jobs/aftercare-cadence` | Trigger endpoints for scheduled background tasks. |
-| **28. AI Extension** | `/api/v1/ai-extension` | `POST /summaries/patient-record`, `POST /recommendations/follow-up` | Feature-flagged abstraction contracts. |
+| **28. AI Extension** | None | None | Removed at client request; no AI endpoints remain. |
 
 ---
 
