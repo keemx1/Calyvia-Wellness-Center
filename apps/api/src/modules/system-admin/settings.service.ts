@@ -85,7 +85,7 @@ export const GATEWAY_SETTINGS: GatewaySettingDef[] = [
     group: 'WHATSAPP',
     description:
       'baileys is an unofficial client — see docs/runbooks/whatsapp-ban-risk.md before enabling.',
-    options: ['mock', 'baileys'],
+    options: ['baileys'],
   },
   {
     key: 'gateway.whatsapp.baileys.auth_dir',

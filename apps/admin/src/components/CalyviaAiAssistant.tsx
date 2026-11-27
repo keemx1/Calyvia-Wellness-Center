@@ -489,7 +489,7 @@ export const CalyviaAiAssistant: React.FC<CalyviaAiAssistantProps> = ({ activeMo
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
                   <div className="flex items-center space-x-1">
                     <ShieldCheck className="w-3 h-3 text-secondary" />
-                    <span>KDPA 2019 Compliant • Role-based data access</span>
+                    <span>Role-based data access • No diagnosis or prescribing</span>
                   </div>
                   <span className="font-mono">Press ↵ to send</span>
                 </div>

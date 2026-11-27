@@ -6,7 +6,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '@calyvia/shared';
 
-@ApiTags('27. Automation (BullMQ Schedulers)')
+@ApiTags('27. Automation (Manual Evaluation Endpoints)')
 @Controller('automation')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

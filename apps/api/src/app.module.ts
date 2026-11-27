@@ -54,6 +54,8 @@ import { AiExtensionModule } from './modules/ai-extension/ai-extension.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Production secrets must be injected by the deployment environment only.
+      ignoreEnvFile: process.env.NODE_ENV === 'production',
       envFilePath: [
         path.resolve(process.cwd(), '.env'),
         path.resolve(process.cwd(), '../../.env'),

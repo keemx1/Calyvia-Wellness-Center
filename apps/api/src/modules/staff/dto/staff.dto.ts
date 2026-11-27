@@ -33,7 +33,7 @@ export class CreateStaffAccountDto {
   @IsNotEmpty()
   role!: UserRole;
 
-  @ApiProperty({ example: 'Calyvia#2026', minLength: 8 })
+  @ApiProperty({ example: 'ChangeMe#2026', minLength: 8 })
   @IsString()
   @MinLength(8, { message: 'Initial provisioned password must be at least 8 characters' })
   initialPassword!: string;

@@ -19,6 +19,7 @@ export class SystemAdminController {
   ) {}
 
   @Get('facility-config')
+  @Roles(...Object.values(UserRole))
   @ApiOperation({ summary: 'Get Calyvia facility master configuration and service tracks' })
   async getFacilityConfig() {
     return this.systemAdminService.getFacilityConfig();

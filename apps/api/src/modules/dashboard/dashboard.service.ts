@@ -9,17 +9,20 @@ export class DashboardService {
     let totalBeds = 0;
     let occupiedBeds = 0;
     let detoxWardOccupancy = 0;
-    const inpatientMaleOccupancy = 0;
-    const inpatientFemaleOccupancy = 0;
-    const vipOccupancy = 0;
+    // Ward-level capacities, vitals alerting and aftercare outcome tracking are
+    // not represented in the current schema. Return null rather than reporting
+    // a fabricated zero as though it were measured data.
+    const inpatientMaleOccupancy: number | null = null;
+    const inpatientFemaleOccupancy: number | null = null;
+    const vipOccupancy: number | null = null;
     let admissionsThisMonth = 0;
     let activeDetoxCases = 0;
-    const activeRehabCases = 0;
+    const activeRehabCases: number | null = null;
     let pendingIntakeLeads = 0;
     let therapySessionsToday = 0;
     let completedSessionsToday = 0;
     let pendingSessionsToday = 0;
-    const criticalVitalsAlerts = 0;
+    const criticalVitalsAlerts: number | null = null;
     let mtdRevenue = 0;
     let outstandingBalances = 0;
     let mpesaVolumePercentage = 0;
@@ -27,7 +30,10 @@ export class DashboardService {
     let incidentsThisMonth = 0;
     let activeTasksPending = 0;
     let staffOnDuty = 0;
-    const aftercareSobrietyRate = 0;
+    const aftercareSobrietyRate: number | null = null;
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
 
     try {
       if (this.prisma) {
@@ -84,8 +90,14 @@ export class DashboardService {
 
         if (this.prisma.payment) {
           const payments = await this.prisma.payment.findMany();
-          mtdRevenue = payments.reduce((sum: number, p: any) => sum + Number(p.amountPaid || p.amountKES || 0), 0);
-          const mpesaPayments = payments.filter((p: any) => p.paymentMethod === 'MPESA_STK' || p.paymentMethod === 'MPESA_PAYBILL');
+          const monthlyPayments = payments.filter((p: any) => {
+            const raw = p.createdAt || p.paymentDate || p.date;
+            if (!raw) return false;
+            const paidAt = new Date(raw);
+            return !Number.isNaN(paidAt.getTime()) && paidAt >= monthStart;
+          });
+          mtdRevenue = monthlyPayments.reduce((sum: number, p: any) => sum + Number(p.amountPaid || p.amountKES || 0), 0);
+          const mpesaPayments = monthlyPayments.filter((p: any) => p.paymentMethod === 'MPESA_STK' || p.paymentMethod === 'MPESA_PAYBILL');
           const mpesaTotal = mpesaPayments.reduce((sum: number, p: any) => sum + Number(p.amountPaid || p.amountKES || 0), 0);
           if (mtdRevenue > 0) {
             mpesaVolumePercentage = Math.round((mpesaTotal / mtdRevenue) * 1000) / 10;
@@ -124,7 +136,9 @@ export class DashboardService {
         name: 'Calyvia Wellness Center',
         location: 'Mugutha, Ruiru, Kiambu County, Kenya',
         contactPhone: '+254700534306',
-        status: 'OPERATIONAL',
+        // Operational readiness is maintained outside the application; the API
+        // does not assert a live facility status it cannot verify.
+        status: null,
       },
       census: {
         totalBeds,

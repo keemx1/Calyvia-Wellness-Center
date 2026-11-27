@@ -61,17 +61,15 @@ describe('SecurityService (Authentication & Password Security)', () => {
     expect(isInvalid).toBe(false);
   }, 15000);
 
-  it('should authenticate bootstrap admin credentials when database is uninitialized', async () => {
+  it('should reject hardcoded bootstrap credentials when no verified account exists', async () => {
     mockPrisma.user.findUnique.mockResolvedValue(null);
 
-    const res = await service.login({
-      email: 'admin@calyviawellness.co.ke',
-      password: 'Calyvia#2026',
-    });
-
-    expect(res).toBeDefined();
-    expect(res.user.role).toBe(UserRole.SUPER_ADMIN);
-    expect(res.tokens.accessToken).toBe('jwt-mock-token-sample');
+    await expect(
+      service.login({
+        email: 'admin@calyviawellness.co.ke',
+        password: 'Calyvia#2026',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('should reject invalid credentials with UnauthorizedException', async () => {

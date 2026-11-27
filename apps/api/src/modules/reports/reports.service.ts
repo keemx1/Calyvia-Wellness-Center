@@ -28,12 +28,9 @@ export class ReportsService {
       reportTitle: `Calyvia Wellness Center - Financial Summary (${month || 'Current Month'})`,
       currency: 'KES',
       generatedAt: new Date().toISOString(),
-      breakdown: [
-        { category: 'Medical Detoxification Packages', amountKES: 0, percentage: 0 },
-        { category: 'Inpatient 30/60/90 Day Rehabilitation', amountKES: 0, percentage: 0 },
-        { category: 'Psychiatric Reviews & Medical Care', amountKES: 0, percentage: 0 },
-        { category: 'Family & Outpatient Psychotherapy', amountKES: 0, percentage: 0 },
-      ],
+      // Line items are not categorised in the database yet, so no fake category
+      // totals are reported. Only the ledger-backed totals below are real.
+      breakdown: [],
       totalCollectedKES: totalCollected,
       totalOutstandingKES: totalOutstanding,
     };
@@ -41,11 +38,13 @@ export class ReportsService {
 
   async generateClinicalOutcomesReport() {
     let completedEpisodes = 0;
+    let totalDetoxEpisodes = 0;
     let totalDischarges = 0;
 
     try {
       if (this.prisma) {
         if (this.prisma.detoxEpisode) {
+          totalDetoxEpisodes = await this.prisma.detoxEpisode.count();
           completedEpisodes = await this.prisma.detoxEpisode.count({ where: { isCompleted: true } });
         }
         if (this.prisma.dischargeRecord) {
@@ -56,18 +55,27 @@ export class ReportsService {
       console.warn('Clinical outcomes aggregation error:', err);
     }
 
+    const detoxCompletionRate =
+      totalDetoxEpisodes > 0
+        ? Number(((completedEpisodes / totalDetoxEpisodes) * 100).toFixed(1))
+        : null;
+
     return {
       reportTitle: 'Clinical Rehabilitation & Detoxification Outcomes',
       reportingFacility: 'Calyvia Wellness Center (Ruiru, Kenya)',
       generatedAt: new Date().toISOString(),
       metrics: {
+        totalDetoxEpisodes,
         totalDetoxEpisodesCompleted: completedEpisodes,
+        detoxCompletionRate,
         totalDischargesCompleted: totalDischarges,
-        averageDetoxDurationDays: 0,
-        uncomplicatedDetoxSuccessRate: 0,
-        averageCIWAScoreReduction: completedEpisodes > 0 ? 'Evaluated on completion' : 'No records yet',
-        rehabProgramGraduationRate: 0,
-        aftercareSobrietyRetention90Days: 0,
+        // These require structured CIWA/aftercare outcome data that is not yet
+        // persisted; null means "no data", not a measured zero.
+        averageDetoxDurationDays: null,
+        uncomplicatedDetoxSuccessRate: null,
+        averageCIWAScoreReduction: null,
+        rehabProgramGraduationRate: null,
+        aftercareSobrietyRetention90Days: null,
       },
     };
   }

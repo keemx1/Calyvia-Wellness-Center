@@ -14,7 +14,9 @@ export class RolesGuard implements CanActivate {
     ]);
 
     if (!requiredRoles || requiredRoles.length === 0) {
-      return true; // No roles defined, route is accessible
+      // Fail closed. Every route behind RolesGuard must declare an explicit
+      // policy; an undecorated route must never become an accidental role bypass.
+      throw new ForbiddenException('No role policy is defined for this route. Access denied by default.');
     }
 
     const { user } = context.switchToHttp().getRequest();

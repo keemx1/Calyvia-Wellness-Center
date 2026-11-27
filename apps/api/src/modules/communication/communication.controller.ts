@@ -15,6 +15,7 @@ export class CommunicationController {
   constructor(private readonly communicationService: CommunicationService) {}
 
   @Post('send')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
   @AuditLog({ action: 'DISPATCH_COMMUNICATION', resource: 'COMMUNICATION' })
   @ApiOperation({ summary: 'Send transactional SMS, WhatsApp, or Email to patient/family' })
   async sendMessage(@Body() dto: SendMessageDto) {
@@ -22,12 +23,14 @@ export class CommunicationController {
   }
 
   @Get('logs')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
   @ApiOperation({ summary: 'View recent communication outbound logs and delivery receipts' })
   async getLogs() {
     return this.communicationService.getRecentLogs();
   }
 
   @Delete('logs/:id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
   @AuditLog({ action: 'DELETE_COMMUNICATION_LOG', resource: 'COMMUNICATION' })
   @ApiOperation({ summary: 'Delete one outbound communication log entry' })
   async deleteLog(@Param('id') id: string) {
@@ -35,6 +38,7 @@ export class CommunicationController {
   }
 
   @Get('sms-templates')
+  @Roles(...Object.values(UserRole))
   @ApiOperation({
     summary: 'List all SMS message formats (welcome, billing, discharge, reminders, …)',
     description:
@@ -46,6 +50,7 @@ export class CommunicationController {
   }
 
   @Post('sms-templates/preview')
+  @Roles(...Object.values(UserRole))
   @ApiOperation({ summary: 'Render an SMS template with sample/real variable values' })
   async previewSmsTemplate(@Body() body: { key?: string; variables?: Record<string, unknown> }) {
     return this.communicationService.previewSmsTemplate(body?.key || '', body?.variables || {});
@@ -71,6 +76,7 @@ export class CommunicationController {
   }
 
   @Get('whatsapp/status')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
   @ApiOperation({
     summary: 'WhatsApp (Baileys) session status, QR and pairing code',
     description:
@@ -82,6 +88,7 @@ export class CommunicationController {
   }
 
   @Get('whatsapp/diagnostics')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
   @ApiOperation({
     summary: 'Probe DNS, HTTPS and WebSocket access to WhatsApp from the API container',
     description:
@@ -129,6 +136,7 @@ export class CommunicationController {
   }
 
   @Post('whatsapp/pair')
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiOperation({
     summary: 'Request a WhatsApp pairing code for a phone number (no QR scan needed)',
   })

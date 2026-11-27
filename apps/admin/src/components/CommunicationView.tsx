@@ -21,6 +21,7 @@ import { SmsTemplatesView } from './SmsTemplatesView';
 interface CommunicationViewProps {
   token: string | null;
   apiUrl: string;
+  userRole?: string | null;
 }
 
 const deliveryTone = (status: string) => {
@@ -34,7 +35,7 @@ const deliveryTone = (status: string) => {
   return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
 };
 
-export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, apiUrl }) => {
+export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, apiUrl, userRole }) => {
   const [activeTab, setActiveTab] = useState<
     'communication' | 'feedback' | 'gateway' | 'templates'
   >('communication');
@@ -300,6 +301,7 @@ export const CommunicationView: React.FC<CommunicationViewProps> = ({ token, api
           <SmsTemplatesView
             token={token}
             apiUrl={apiUrl}
+            canEdit={userRole === 'SUPER_ADMIN'}
             onUseTemplate={(body) => {
               setSendForm((prev) => ({ ...prev, channel: 'SMS', body, templateKey: '' }));
               setTemplateVars({});

@@ -19,10 +19,11 @@ import {
 interface DocumentsViewProps {
   token: string | null;
   apiUrl: string;
+  initialTab?: 'consents' | 'discharges' | 'aftercare';
 }
 
-export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) => {
-  const [activeTab, setActiveTab] = useState<'consents' | 'discharges' | 'aftercare'>('consents');
+export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl, initialTab = 'consents' }) => {
+  const [activeTab, setActiveTab] = useState<'consents' | 'discharges' | 'aftercare'>(initialTab);
   const [consents, setConsents] = useState<any[]>([]);
   const [discharges, setDischarges] = useState<any[]>([]);
   const [aftercarePlans, setAftercarePlans] = useState<any[]>([]);
@@ -47,7 +48,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
     patientId: '',
     medicalSummary: '',
     familyBriefingNotes: '',
-    signedByDoctor: 'Dr. Evelyn Wanjiku (Psychiatrist)',
+    signedByDoctor: '',
     relapseRiskLevel: 'MODERATE',
   });
 
@@ -129,6 +130,10 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
       setLoading(false);
     }
   }, [token, apiUrl]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     fetchPatients();
@@ -256,7 +261,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ token, apiUrl }) =
                     patientId: patientsList[0]?.id || '',
                     medicalSummary: '',
                     familyBriefingNotes: '',
-                    signedByDoctor: 'Dr. Evelyn Wanjiku (Psychiatrist)',
+                    signedByDoctor: '',
                     relapseRiskLevel: 'MODERATE',
                   });
                   setModalType('discharge');

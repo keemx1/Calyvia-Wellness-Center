@@ -34,8 +34,8 @@ describe('DashboardService (Executive KPIs & Census)', () => {
       },
       payment: {
         findMany: jest.fn().mockResolvedValue([
-          { amountPaid: 2611200, paymentMethod: 'MPESA_STK' },
-          { amountPaid: 1228800, paymentMethod: 'BANK_TRANSFER' },
+          { amountPaid: 2611200, paymentMethod: 'MPESA_STK', createdAt: new Date() },
+          { amountPaid: 1228800, paymentMethod: 'BANK_TRANSFER', createdAt: new Date() },
         ]),
       },
       staffTask: {
@@ -68,7 +68,9 @@ describe('DashboardService (Executive KPIs & Census)', () => {
 
     expect(metrics).toBeDefined();
     expect(metrics.facility.name).toBe('Calyvia Wellness Center');
-    expect(metrics.facility.status).toBe('OPERATIONAL');
+    expect(metrics.facility.status).toBeNull();
+    expect(metrics.census.inpatientMaleOccupancy).toBeNull();
+    expect(metrics.clinical.criticalVitalsAlerts).toBeNull();
 
     // Census assertions based on mock database state
     expect(metrics.census.totalBeds).toBe(32);

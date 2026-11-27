@@ -30,9 +30,12 @@ export class SystemAdminService {
         'Relapse Prevention & Aftercare Follow-up',
       ],
       compliance: {
-        kdpa2019Compliant: true,
-        dataControllerRegistered: true,
+        // Registration and statutory compliance are legal facts, not application
+        // settings. They must be verified outside this system before publication.
+        kdpa2019Compliant: null,
+        dataControllerRegistered: null,
         auditTrailEnabled: true,
+        verificationNote: 'KDPA registration and compliance status are not verified by this application.',
       },
     };
   }

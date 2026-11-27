@@ -24,10 +24,10 @@ describe('RolesGuard (RBAC least privilege)', () => {
     } as any;
   };
 
-  it('should allow access if no roles are required', () => {
+  it('should deny access when no role policy is declared (fail closed)', () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
     const context = createMockContext(UserRole.NURSE);
-    expect(guard.canActivate(context)).toBe(true);
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
   it('should allow SUPER_ADMIN full access regardless of required roles', () => {

@@ -28,6 +28,16 @@ export function resolveSmsProviderName(value: string | undefined | null): string
   return raw;
 }
 
+/**
+ * WhatsApp has no mock driver in production. A stale `WHATSAPP_PROVIDER=mock`
+ * must resolve to Baileys there so the system can never log a synthetic send.
+ */
+export function resolveWhatsAppProviderName(value: string | undefined | null): string {
+  const raw = (value || '').trim().toLowerCase();
+  if (process.env.NODE_ENV === 'production' && raw !== 'baileys') return 'baileys';
+  return raw;
+}
+
 /** No-op resolver used in unit tests. */
 export class NullConfigResolver implements ConfigResolver {
   constructor(private readonly values: Record<string, string | undefined> = {}) {}

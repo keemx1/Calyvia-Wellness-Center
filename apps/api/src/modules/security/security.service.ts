@@ -33,6 +33,17 @@ export class SecurityService {
     }
   }
 
+  private jwtSecret(kind: 'access' | 'refresh'): string {
+    const secret = kind === 'access' ? process.env.JWT_ACCESS_SECRET : process.env.JWT_REFRESH_SECRET;
+    if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(`JWT_${kind.toUpperCase()}_SECRET must be configured in production`);
+      }
+      return `dev-only-${kind}-secret`;
+    }
+    return secret;
+  }
+
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
@@ -46,11 +57,10 @@ export class SecurityService {
         });
       }
     } catch (err) {
-      console.warn('Database user lookup failed, falling back to bootstrap admin credentials');
+      // Never turn a database outage into a credential bypass. Authentication
+      // can still proceed through Supabase Auth, but only if that succeeds.
+      console.warn('Database user lookup failed; Supabase Auth will be tried');
     }
-
-    const bootstrapEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@calyviawellness.co.ke').toLowerCase();
-    const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD || 'Calyvia#2026';
 
     if (user) {
       let isValid = await this.verifyPassword(user.passwordHash, password);
@@ -71,15 +81,6 @@ export class SecurityService {
         } catch {}
       }
 
-      if (!isValid && user.role === UserRole.SUPER_ADMIN && (password === 'Clinical#2026' || password === 'Calyvia#2026' || password === 'CalyviaSecure#2026' || password === bootstrapPassword)) {
-        isValid = true;
-        const newHash = await this.hashPassword(password);
-        this.prisma.user.update({
-          where: { id: user.id },
-          data: { passwordHash: newHash, updatedAt: new Date() },
-        }).catch(() => {});
-      }
-
       if (!isValid) {
         throw new UnauthorizedException('Invalid email or password');
       }
@@ -95,50 +96,50 @@ export class SecurityService {
         throw new UnauthorizedException('User account has been deactivated or suspended. Please contact the administrator.');
       }
     } else {
-      // User not yet in public.users: verify via Supabase Auth
-      let authenticatedViaSupabase = false;
-      if (SupabaseService.staticClient) {
-        try {
-          const { data: authData, error: authErr } = await SupabaseService.staticClient.auth.signInWithPassword({
-            email: email.toLowerCase(),
-            password,
-          });
-          if (!authErr && authData?.user) {
-            authenticatedViaSupabase = true;
-            const newHash = await this.hashPassword(password);
-            const authRole = authData.user.user_metadata?.role || authData.user.app_metadata?.role || UserRole.SUPER_ADMIN;
-            const authName = authData.user.user_metadata?.fullName || 'Dr. Antony Baraka (Medical Director & Administrator)';
-            user = await this.prisma.user.create({
-              data: {
-                id: authData.user.id,
-                email: email.toLowerCase(),
-                passwordHash: newHash,
-                role: authRole,
-                fullName: authName,
-                isActive: true,
-                approvalStatus: 'APPROVED',
-                mustChangePassword: false,
-              },
-            });
-          }
-        } catch {}
+      // User not yet in public.users: Supabase Auth is the only trusted source.
+      // No local/fake identity may be minted without a verified auth session.
+      if (!SupabaseService.staticClient) {
+        throw new UnauthorizedException('Invalid email or password');
       }
 
-      if (!authenticatedViaSupabase) {
-        // Fallback emergency bootstrap check
-        if (email.toLowerCase() === bootstrapEmail && password === bootstrapPassword) {
-          user = {
-            id: '00000000-0000-0000-0000-000000000001',
-            email: bootstrapEmail,
-            fullName: 'Dr. Baraka (Medical Director & Admin)',
-            role: UserRole.SUPER_ADMIN,
-            isActive: true,
-            approvalStatus: 'APPROVED',
-          };
-        } else {
-          throw new UnauthorizedException('Invalid email or password');
-        }
+      let authData: any;
+      try {
+        const result = await SupabaseService.staticClient.auth.signInWithPassword({
+          email: email.toLowerCase(),
+          password,
+        });
+        if (!result.error && result.data?.user) authData = result.data;
+      } catch {
+        // Treated as failed authentication below.
       }
+
+      if (!authData) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      const authRole = authData.user.user_metadata?.role || authData.user.app_metadata?.role;
+      const validRoles: string[] = Object.values(UserRole);
+      if (!authRole || !validRoles.includes(authRole)) {
+        throw new ForbiddenException('The authenticated account has no valid Calyvia role assignment.');
+      }
+
+      const authName =
+        authData.user.user_metadata?.fullName ||
+        authData.user.email?.split('@')[0] ||
+        'Calyvia User';
+
+      user = await this.prisma.user.create({
+        data: {
+          id: authData.user.id,
+          email: email.toLowerCase(),
+          passwordHash: await this.hashPassword(password),
+          role: authRole,
+          fullName: authName,
+          isActive: true,
+          approvalStatus: 'APPROVED',
+          mustChangePassword: false,
+        },
+      });
     }
 
     const payload = {
@@ -149,12 +150,12 @@ export class SecurityService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_ACCESS_SECRET || 'calyvia_jwt_access_super_secret_development_key_2026_xyz',
+      secret: this.jwtSecret('access'),
       expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     });
 
     const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'calyvia_jwt_refresh_super_secret_development_key_2026_xyz',
+      secret: this.jwtSecret('refresh'),
       expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     });
 
@@ -178,7 +179,7 @@ export class SecurityService {
   async refreshToken(token: string) {
     try {
       const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_REFRESH_SECRET || 'calyvia_jwt_refresh_super_secret_development_key_2026_xyz',
+        secret: this.jwtSecret('refresh'),
       });
 
       const newAccessToken = this.jwtService.sign(
@@ -189,7 +190,7 @@ export class SecurityService {
           role: payload.role,
         },
         {
-          secret: process.env.JWT_ACCESS_SECRET || 'calyvia_jwt_access_super_secret_development_key_2026_xyz',
+          secret: this.jwtSecret('access'),
           expiresIn: '15m',
         },
       );

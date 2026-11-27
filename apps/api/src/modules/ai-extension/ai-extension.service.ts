@@ -182,7 +182,7 @@ export class AiExtensionService {
 
       reply =
         `### 🏥 Calyvia Wellness Center — Operational Summary\n\n` +
-        `**Facility Status:** ${metrics.facility?.status || 'OPERATIONAL'} (${metrics.facility?.location || 'Ruiru, Kiambu County'})\n` +
+        `**Facility Status:** ${metrics.facility?.status || 'NOT_REPORTED'} (${metrics.facility?.location || 'Ruiru, Kiambu County'})\n` +
         `**Reporting Period:** Today, ${new Date().toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\n` +
         `#### 🛏️ Bed Census & Ward Occupancy\n` +
         `* **Occupancy:** **${metrics.census?.occupiedBeds || 0} / ${metrics.census?.totalBeds || 0} Beds** (${metrics.census?.occupancyRatePercentage || 0}%)\n` +
@@ -406,28 +406,23 @@ export class AiExtensionService {
     };
   }
 
-  // Preserve existing extension point contracts for clinical record summaries
+  // These remain explicit contract stubs. They must not claim to have computed
+  // a clinical summary or follow-up plan until a real pipeline is implemented.
   async generatePatientRecordSummary(contract: AiSummarizationContract) {
-    if (!this.isAiEnabled) {
-      return {
-        isAvailable: true,
-        featureStatus: 'ACTIVE_INSTITUTIONAL_COPILOT',
-        message: 'Patient record summarization pipeline mounted.',
-        stubData: {
-          patientId: contract.patientId,
-          suggestedSummary: 'SOAP Note summary compiled from clinical notes and vitals logs.',
-        },
-      };
-    }
-    return { isAvailable: true };
+    return {
+      isAvailable: false,
+      featureStatus: this.isAiEnabled ? 'NOT_IMPLEMENTED' : 'DISABLED',
+      message: 'Patient record summarization is not implemented. No summary was generated.',
+      patientId: contract.patientId,
+    };
   }
 
   async getFollowUpSuggestions(contract: AiFollowUpSuggestionContract) {
     return {
-      isAvailable: true,
-      featureStatus: 'ACTIVE_INSTITUTIONAL_COPILOT',
-      message: 'Aftercare and follow-up recommendations computed.',
-      contractPayload: contract,
+      isAvailable: false,
+      featureStatus: this.isAiEnabled ? 'NOT_IMPLEMENTED' : 'DISABLED',
+      message: 'Follow-up recommendation generation is not implemented. No suggestions were computed.',
+      patientId: contract.patientId,
     };
   }
 }

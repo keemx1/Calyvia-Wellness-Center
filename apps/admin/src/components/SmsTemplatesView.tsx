@@ -15,6 +15,8 @@ import {
 interface SmsTemplatesViewProps {
   token: string | null;
   apiUrl: string;
+  /** Template edits are restricted to SUPER_ADMIN by the API. */
+  canEdit?: boolean;
   /** Pre-fill the "Send communication" dialog with a rendered template. */
   onUseTemplate?: (body: string) => void;
 }
@@ -63,6 +65,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
   token,
   apiUrl,
+  canEdit = false,
   onUseTemplate,
 }) => {
   const [templates, setTemplates] = useState<SmsTemplate[]>([]);
@@ -224,8 +227,9 @@ export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
         <div>
           <h3 className="font-serif text-base font-bold text-foreground">SMS Message Templates</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Edit every outbound format — welcome, admission, billing, discharge, reminders and
-            aftercare. Changes take effect on the next message; no redeploy needed.
+            {canEdit
+              ? 'Edit every outbound format — welcome, admission, billing, discharge, reminders and aftercare. Changes take effect on the next message.'
+              : 'Read-only view of every outbound format. Only a SUPER_ADMIN can edit templates; previews and sending are available to all authenticated users.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -236,13 +240,15 @@ export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5" /> Refresh
           </button>
-          <button
-            onClick={handleReset}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3 py-2 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-surface-elevated disabled:opacity-50"
-          >
-            <FileText className="w-3.5 h-3.5" /> Defaults
-          </button>
+          {canEdit && (
+            <button
+              onClick={handleReset}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-surface-elevated disabled:opacity-50"
+            >
+              <FileText className="w-3.5 h-3.5" /> Defaults
+            </button>
+          )}
         </div>
       </div>
 
@@ -313,10 +319,11 @@ export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
                   <input
                     type="checkbox"
                     checked={enabled[selected.key] !== false}
+                    disabled={!canEdit}
                     onChange={(e) =>
                       setEnabled((prev) => ({ ...prev, [selected.key]: e.target.checked }))
                     }
-                    className="accent-primary"
+                    className="accent-primary disabled:opacity-50"
                   />
                   Active
                 </label>
@@ -331,11 +338,12 @@ export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
                 </div>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={drafts[selected.key] ?? selected.body}
                   onChange={(e) =>
                     setDrafts((prev) => ({ ...prev, [selected.key]: e.target.value }))
                   }
-                  className="w-full bg-surface-subtle border border-border rounded-xl p-3 text-xs text-foreground font-mono focus:outline-none focus:border-primary"
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-3 text-xs text-foreground font-mono focus:outline-none focus:border-primary read-only:opacity-80"
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Use{' '}
@@ -399,14 +407,16 @@ export const SmsTemplatesView: React.FC<SmsTemplatesViewProps> = ({
                     <Send className="w-3.5 h-3.5" /> Use in Send
                   </button>
                 )}
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-semibold hover:bg-primary-hover disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  Save all templates
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-semibold hover:bg-primary-hover disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Save all templates
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -6,16 +6,16 @@ services:
     container_name: calyvia_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: calyvia_user
-      POSTGRES_PASSWORD: calyvia_secure_pass
-      POSTGRES_DB: calyvia_db
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER must be set}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+      POSTGRES_DB: "${POSTGRES_DB:-calyvia_db}"
       TZ: Africa/Nairobi
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U calyvia_user -d calyvia_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-calyvia_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -39,8 +39,8 @@ services:
     container_name: calyvia_minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}"
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -62,12 +62,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: "postgresql://calyvia_user:calyvia_secure_pass@postgres:5432/calyvia_db?schema=public"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_ACCESS_SECRET: "calyvia_jwt_access_super_secret_development_key_2026_xyz"
-      JWT_REFRESH_SECRET: "calyvia_jwt_refresh_super_secret_development_key_2026_xyz"
-      ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      JWT_ACCESS_SECRET: "${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET must be set}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be set}"
+      ENCRYPTION_MASTER_KEY: "${ENCRYPTION_MASTER_KEY:?ENCRYPTION_MASTER_KEY must be set}"
+      SMS_PROVIDER: "bytewave"
+      WHATSAPP_PROVIDER: "baileys"
       MPESA_ENVIRONMENT: "${MPESA_ENVIRONMENT:-production}"
       MPESA_CONSUMER_KEY: "${MPESA_CONSUMER_KEY:-}"
       MPESA_CONSUMER_SECRET: "${MPESA_CONSUMER_SECRET:-}"
@@ -91,7 +93,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NEXT_PUBLIC_API_URL: "http://localhost:4000/api/v1"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-https://api.calyviawellness.co.ke/api/v1}"
     ports:
       - "3000:3000"
 

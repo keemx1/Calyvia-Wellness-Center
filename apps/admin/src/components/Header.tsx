@@ -7,9 +7,11 @@ import { useTheme } from './ThemeProvider';
 interface HeaderProps {
   onToggleMobileMenu?: () => void;
   onSelectModule?: (moduleId: string) => void;
+  /** Live critical-vitals alert count. null means the metric is not tracked. */
+  alertCount?: number | null;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onSelectModule }) => {
+export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onSelectModule, alertCount }) => {
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState<boolean>(false);
   const { theme, toggleTheme } = useTheme();
@@ -68,7 +70,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onSelectModu
             className="w-9 h-9 rounded-xl border border-border bg-surface hover:bg-surface-elevated text-foreground flex items-center justify-center hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-200 shadow-xs relative cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden"
           >
             <Bell className="w-4 h-4 text-muted-foreground" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-accent rounded-full animate-pulse" />
+            {(alertCount ?? 0) > 0 && (
+              <span className="absolute top-2 right-2 w-2 h-2 bg-accent rounded-full animate-pulse" />
+            )}
           </button>
 
           {/* Notifications Dropdown Preview */}
@@ -76,11 +80,33 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onSelectModu
             <div className="absolute right-0 mt-2 w-80 bg-surface border border-border rounded-2xl shadow-elevated p-3 z-50 animate-in fade-in-50 zoom-in-95 duration-150">
               <div className="flex items-center justify-between pb-2 border-b border-border">
                 <span className="font-semibold text-xs text-foreground">Clinical Alerts</span>
-                <span className="text-[10px] text-muted-foreground font-mono">0 active</span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {alertCount === null || alertCount === undefined ? 'not tracked' : `${alertCount} active`}
+                </span>
               </div>
               <div className="py-6 text-center text-xs space-y-1">
-                <p className="font-medium text-foreground">No Active Clinical Alerts</p>
-                <p className="text-[11px] text-muted-foreground">All patient vitals and facility alerts are normal.</p>
+                {alertCount === null || alertCount === undefined ? (
+                  <>
+                    <p className="font-medium text-foreground">Alert feed not configured</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Automated vitals alerting is not implemented. Review the Detox Station for current observations.
+                    </p>
+                  </>
+                ) : alertCount === 0 ? (
+                  <>
+                    <p className="font-medium text-foreground">No active alerts on record</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      This is the current stored alert count, not a real-time monitoring guarantee.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-foreground">{alertCount} active clinical alert(s)</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Open the Detox Station to review the underlying observations.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           )}

@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { SmsProvider } from './sms-provider';
 import { WhatsAppProvider } from './whatsapp-provider';
-import { ConfigResolver, resolveSmsProviderName } from './config-resolver';
+import { ConfigResolver, resolveSmsProviderName, resolveWhatsAppProviderName } from './config-resolver';
 import { MockSmsProvider } from './mock-sms.provider';
 import { MockWhatsAppProvider } from './mock-whatsapp.provider';
 import { ByteWaveSmsProvider } from './bytewave-sms.provider';
@@ -75,9 +75,10 @@ export async function createSmsProvider(config: ConfigResolver): Promise<SmsProv
 }
 
 export async function createWhatsAppProvider(config: ConfigResolver): Promise<WhatsAppProvider> {
-  const provider = ((await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider')) || 'mock')
-    .toLowerCase()
-    .trim();
+  const configured = await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider');
+  const provider =
+    resolveWhatsAppProviderName(configured) ||
+    (process.env.NODE_ENV === 'production' ? 'baileys' : 'mock');
 
   try {
     switch (provider) {
@@ -86,8 +87,8 @@ export async function createWhatsAppProvider(config: ConfigResolver): Promise<Wh
       case 'mock':
         return new MockWhatsAppProvider();
       default:
-        logger.warn(`Unknown WHATSAPP_PROVIDER "${provider}" — falling back to mock driver.`);
-        return new MockWhatsAppProvider();
+        logger.warn(`Unknown WHATSAPP_PROVIDER "${provider}" — WhatsApp dispatch is disabled.`);
+        return new UnavailableWhatsAppProvider(`Unknown WhatsApp provider "${provider}"`);
     }
   } catch (err: any) {
     const reason = err?.message || String(err);
@@ -99,9 +100,8 @@ export async function createWhatsAppProvider(config: ConfigResolver): Promise<Wh
 
 /** Called at bootstrap to bring the WhatsApp socket up when Baileys is selected. */
 export async function bootstrapWhatsApp(config: ConfigResolver): Promise<void> {
-  const provider = ((await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider')) || '')
-    .toLowerCase()
-    .trim();
+  const configured = await config.get('WHATSAPP_PROVIDER', 'gateway.whatsapp.provider');
+  const provider = resolveWhatsAppProviderName(configured);
   if (provider !== 'baileys') return;
 
   try {

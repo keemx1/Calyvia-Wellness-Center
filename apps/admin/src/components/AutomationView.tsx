@@ -34,7 +34,12 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        setStatusMsg({ type: 'success', text: `Job executed: ${label} triggered successfully.` });
+        const result = await res.json().catch(() => ({}));
+        const notConfigured = result?.status === 'NOT_CONFIGURED';
+        setStatusMsg({
+          type: notConfigured ? 'error' : 'success',
+          text: result?.message || `Job executed: ${label} triggered successfully.`,
+        });
       } else {
         const err = await res.json().catch(() => ({}));
         setStatusMsg({ type: 'error', text: err.message || `Failed to trigger ${label}.` });
@@ -55,11 +60,11 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
               Integrations, Webhooks & Automated Schedulers
             </h2>
             <p className="text-xs text-muted-foreground">
-              Safaricom Daraja Lipa Na M-Pesa STK, website enquiry endpoints, and BullMQ background workers
+              Safaricom Daraja Lipa Na M-Pesa STK, website enquiry endpoints, and manual job triggers
             </p>
           </div>
           <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-xs font-semibold rounded-full self-start sm:self-auto">
-            Gateway Cluster Online
+            Configured Integrations
           </span>
         </div>
 
@@ -113,7 +118,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
                   <span>Safaricom Daraja API Gateway</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                  CONNECTED
+                  CONFIGURED
                 </span>
               </div>
               <p className="text-muted-foreground text-[11px] leading-relaxed">
@@ -122,7 +127,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
               <div className="p-2.5 bg-surface rounded-xl border border-border font-mono text-[10px] text-muted-foreground space-y-1">
                 <div><strong>Endpoint:</strong> /api/v1/integrations/mpesa/callback</div>
                 <div><strong>Handshake:</strong> TLS 1.3 / OAuth 2.0 Bearer</div>
-                <div><strong>Environment:</strong> Production Sandbox / Live Safaricom</div>
+                <div><strong>Environment:</strong> Production Safaricom Daraja</div>
               </div>
             </div>
 
@@ -134,14 +139,14 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
                   <span>Website Intake Lead Webhook</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary-soft text-primary border border-primary/20">
-                  LISTENING
+                  ENDPOINT READY
                 </span>
               </div>
               <p className="text-muted-foreground text-[11px] leading-relaxed">
                 Asynchronously consumes admission inquiries submitted from the official Calyvia Wellness Center web portal and routes them into the CRM triage pipeline.
               </p>
               <div className="p-2.5 bg-surface rounded-xl border border-border font-mono text-[10px] text-muted-foreground space-y-1">
-                <div><strong>Webhook URL:</strong> https://portal.calyviawellness.co.ke/api/v1/integrations/webhook/website-lead</div>
+                <div><strong>Webhook URL:</strong> https://api.calyviawellness.co.ke/api/v1/integrations/webhook/website-lead</div>
                 <div><strong>Origin:</strong> https://calyviawellness.co.ke</div>
                 <div><strong>Target:</strong> CRM Triage & Helpline Desk</div>
               </div>
@@ -160,14 +165,14 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
                     <span>Detox Vitals Overdue Alert Job</span>
                   </div>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning-soft text-warning">
-                    CRON: */15 * * * *
+                    NOT SCHEDULED
                   </span>
                 </div>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Scans active high-acuity detox beds every 15 minutes. If CIWA-Ar withdrawal vitals are overdue by {'>'}4 hours, automatically alerts nursing station lead.
+                  Manual evaluation endpoint. No background scheduler is currently connected, so triggering it only reports that no vitals alerts were dispatched.
                 </p>
                 <div className="pt-1 flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-muted-foreground">Queue: @calyvia/vitals-scheduler</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Queue: not configured</span>
                   <button
                     onClick={() => handleTriggerJob('jobs/vitals-monitor', 'Detox Vitals Alert Monitor')}
                     disabled={triggeringJob === 'jobs/vitals-monitor'}
@@ -191,14 +196,14 @@ export const AutomationView: React.FC<AutomationViewProps> = ({ token, apiUrl })
                     <span>Aftercare Cadence Dispatcher</span>
                   </div>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-secondary-soft text-secondary">
-                    CRON: 0 8 * * *
+                    NOT SCHEDULED
                   </span>
                 </div>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Evaluates 90-day recovery plans daily at 08:00 EAT. Dispatches scheduled check-in reminders (Day 7, 14, 30, 60, 90) to alumni and assigned counselors.
+                  Manual evaluation endpoint. No background scheduler is currently connected, so triggering it only reports that no aftercare reminders were dispatched.
                 </p>
                 <div className="pt-1 flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-muted-foreground">Queue: @calyvia/aftercare-cadence</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Queue: not configured</span>
                   <button
                     onClick={() => handleTriggerJob('jobs/aftercare-cadence', 'Aftercare Cadence Dispatcher')}
                     disabled={triggeringJob === 'jobs/aftercare-cadence'}

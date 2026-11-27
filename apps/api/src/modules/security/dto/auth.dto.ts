@@ -7,7 +7,7 @@ export class LoginDto {
   @IsNotEmpty()
   email!: string;
 
-  @ApiProperty({ example: 'CalyviaSecure#2026' })
+  @ApiProperty({ example: 'YourStrongPassword#2026' })
   @IsString()
   @IsNotEmpty()
   @MinLength(6)

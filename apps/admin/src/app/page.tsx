@@ -542,10 +542,51 @@ export default function AdminDashboardPage() {
   const [newAppointment, setNewAppointment] = useState({
     title: '',
     patientId: '',
-    staffMemberName: 'Dr. Evelyn Wanjiku',
+    staffMemberName: '',
     appointmentType: 'PSYCHIATRIC_REVIEW',
     time: '10:00 AM',
     location: 'Consultation Suite A',
+  });
+
+  const emptyLeadForm = {
+    fullName: '',
+    phone: '',
+    email: '',
+    channel: 'WEBSITE_FORM',
+    substancesUsed: '',
+    urgencyLevel: 'NORMAL',
+    notes: '',
+  };
+  const [newLead, setNewLead] = useState(emptyLeadForm);
+
+  const emptyAdmissionForm = {
+    patientId: '',
+    admissionType: 'VOLUNTARY',
+    programType: 'REHAB_30_DAYS',
+    primaryDiagnosis: '',
+    referringDoctor: '',
+  };
+  const [admissionForm, setAdmissionForm] = useState(emptyAdmissionForm);
+
+  const [clinicalForm, setClinicalForm] = useState({
+    patientId: '',
+    noteType: 'DOCTOR_CLINICAL_NOTE',
+    subjective: '',
+    objective: '',
+    assessment: '',
+    plan: '',
+    icd10Diagnosis: '',
+  });
+  const [clinicalNotes, setClinicalNotes] = useState<any[]>([]);
+
+  const [prescriptionForm, setPrescriptionForm] = useState({
+    patientId: '',
+    doctorName: '',
+    medicationId: '',
+    dosage: '',
+    frequency: '',
+    durationDays: 30,
+    instructions: '',
   });
 
   // Live Database States (empty by default)
@@ -566,6 +607,50 @@ export default function AdminDashboardPage() {
 
   const [pharmacyStock, setPharmacyStock] = useState<any[]>([]);
   const [loadingPharmacy, setLoadingPharmacy] = useState<boolean>(false);
+
+  const [financialReport, setFinancialReport] = useState<any>(null);
+  const [clinicalReport, setClinicalReport] = useState<any>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [facilityConfig, setFacilityConfig] = useState<any>(null);
+  const [aiStatus, setAiStatus] = useState<any>(null);
+
+  const formatReportRate = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}%` : 'No data';
+
+  const fetchAiStatus = useCallback(async () => {
+    if (!token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/ai-extension/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setAiStatus(await res.json());
+    } catch (err) {
+      console.warn('Failed to fetch AI status:', err);
+    }
+  }, [token]);
+
+  const exportReportsCsv = () => {
+    const rows: Array<Array<string | number>> = [
+      ['Report', 'Metric', 'Value'],
+      ['Financial', 'Collections to date', financialReport?.totalCollectedKES ?? 0],
+      ['Financial', 'Outstanding balance', financialReport?.totalOutstandingKES ?? 0],
+      ['Clinical', 'Total detox episodes', clinicalReport?.metrics?.totalDetoxEpisodes ?? 0],
+      ['Clinical', 'Detox episodes completed', clinicalReport?.metrics?.totalDetoxEpisodesCompleted ?? 0],
+      ['Clinical', 'Detox completion rate', clinicalReport?.metrics?.detoxCompletionRate ?? 'No data'],
+      ['Clinical', 'Discharges completed', clinicalReport?.metrics?.totalDischargesCompleted ?? 0],
+      ['Clinical', '90-day sobriety rate', clinicalReport?.metrics?.aftercareSobrietyRetention90Days ?? 'No data'],
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `calyvia-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const fetchDashboardMetrics = useCallback(async () => {
     if (!token) return;
@@ -601,12 +686,12 @@ export default function AdminDashboardPage() {
             id: p.calyviaId || p.id,
             name: `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Anonymous',
             gender: p.gender || '—',
-            age: p.dateOfBirth ? Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / (365.25 * 24 * 3600 * 1000)) : 30,
+            age: p.dateOfBirth ? Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / (365.25 * 24 * 3600 * 1000)) : '—',
             phone: p.phone || '—',
-            county: p.county || 'Kiambu',
+            county: p.county || '—',
             status: p.status || 'ENQUIRY',
             ward: p.bedAllocations?.[0]?.bed?.room?.name || 'Unassigned',
-            doctor: p.primaryDoctorName || 'Triage Front Desk',
+            doctor: p.primaryDoctorName || '—',
           })));
         }
       }
@@ -748,6 +833,7 @@ export default function AdminDashboardPage() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setPharmacyStock(data.map((m: any) => ({
+            id: m.id,
             name: m.genericName || m.brandName || m.name,
             category: m.therapeuticCategory || m.category || 'Medication',
             stock: m.stockOnHand ?? m.stock ?? 0,
@@ -764,6 +850,74 @@ export default function AdminDashboardPage() {
     }
   }, [token]);
 
+  const fetchClinicalNotes = useCallback(async () => {
+    if (!token || !selectedPatientId) {
+      setClinicalNotes([]);
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/clinical/notes/patient/${selectedPatientId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setClinicalNotes(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch clinical notes:', err);
+    }
+  }, [token, selectedPatientId]);
+
+  useEffect(() => {
+    if (activeModule === 'clinical') fetchClinicalNotes();
+  }, [activeModule, fetchClinicalNotes]);
+
+  const fetchReports = useCallback(async () => {
+    if (!token) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const [financialRes, clinicalRes] = await Promise.all([
+        fetch(`${apiUrl}/reports/financial`, { headers }),
+        fetch(`${apiUrl}/reports/clinical-outcomes`, { headers }),
+      ]);
+      if (financialRes.ok) setFinancialReport(await financialRes.json());
+      if (clinicalRes.ok) setClinicalReport(await clinicalRes.json());
+    } catch (err) {
+      console.warn('Failed to fetch reports:', err);
+    }
+  }, [token]);
+
+  const fetchAuditLogs = useCallback(async () => {
+    if (!token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/audit-logs?limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setAuditLogs(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch audit logs:', err);
+    }
+  }, [token]);
+
+  const fetchFacilityConfig = useCallback(async () => {
+    if (!token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/system-admin/facility-config`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setFacilityConfig(await res.json());
+    } catch (err) {
+      console.warn('Failed to fetch facility configuration:', err);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       fetchDashboardMetrics();
@@ -774,6 +928,14 @@ export default function AdminDashboardPage() {
       fetchPharmacy();
     }
   }, [token, fetchDashboardMetrics, fetchPatients, fetchAppointments, fetchLeads, fetchStaff, fetchPharmacy]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (activeModule === 'reports') fetchReports();
+    if (activeModule === 'security') fetchAuditLogs();
+    if (activeModule === 'system_admin') fetchFacilityConfig();
+    if (activeModule === 'ai_extension') fetchAiStatus();
+  }, [activeModule, token, fetchReports, fetchAuditLogs, fetchFacilityConfig, fetchAiStatus]);
 
   // Leaving the registry always returns to the list, not a stale patient chart.
   useEffect(() => {
@@ -858,7 +1020,10 @@ export default function AdminDashboardPage() {
   // Handle Book Appointment Form Submission
   const handleBookAppointmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAppointment.title) return;
+    if (!newAppointment.title || !newAppointment.staffMemberName) {
+      alert('Select a registered clinician before scheduling the appointment.');
+      return;
+    }
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
@@ -881,32 +1046,155 @@ export default function AdminDashboardPage() {
           location: newAppointment.location,
         }),
       });
-      if (res.ok) {
-        setActiveModal(null);
-        setNewAppointment({ title: '', patientId: '', staffMemberName: 'Dr. Evelyn Wanjiku', appointmentType: 'PSYCHIATRIC_REVIEW', time: '10:00 AM', location: 'Consultation Suite A' });
-        alert(`Appointment scheduled successfully.`);
-        fetchAppointments();
-        fetchDashboardMetrics();
-        return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Appointment booking failed (${res.status}).`);
       }
-    } catch (err) {
-      console.warn('Backend appointment booking error:', err);
+
+      setActiveModal(null);
+      setNewAppointment({ title: '', patientId: '', staffMemberName: '', appointmentType: 'PSYCHIATRIC_REVIEW', time: '10:00 AM', location: 'Consultation Suite A' });
+      alert('Appointment scheduled successfully.');
+      fetchAppointments();
+      fetchDashboardMetrics();
+    } catch (err: any) {
+      alert(`Could not schedule appointment: ${err?.message || 'Network error'}`);
     }
+  };
 
-    const created = {
-      id: `APT-${Math.floor(100 + Math.random() * 900)}`,
-      time: newAppointment.time,
-      title: newAppointment.title,
-      patient: newAppointment.patientId || 'Outpatient Client',
-      doctor: newAppointment.staffMemberName,
-      type: newAppointment.appointmentType,
-      status: 'CONFIRMED',
-    };
+  const handleCreateLeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLead.fullName || !newLead.phone) {
+      alert('Lead name and phone number are required.');
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/crm/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...newLead,
+          substancesUsed: newLead.substancesUsed || undefined,
+          email: newLead.email || undefined,
+          notes: newLead.notes || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Could not save lead (${res.status}).`);
+      }
+      setActiveModal(null);
+      setNewLead(emptyLeadForm);
+      alert('Admissions lead recorded successfully.');
+      fetchLeads();
+    } catch (err: any) {
+      alert(`Could not record lead: ${err?.message || 'Network error'}`);
+    }
+  };
 
-    setAppointments((prev) => [created, ...prev]);
-    setActiveModal(null);
-    setNewAppointment({ title: '', patientId: '', staffMemberName: 'Dr. Evelyn Wanjiku', appointmentType: 'PSYCHIATRIC_REVIEW', time: '10:00 AM', location: 'Consultation Suite A' });
-    alert(`Appointment scheduled for ${created.patient} with ${created.doctor}`);
+  const handleAdmitPatientSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!admissionForm.patientId || !admissionForm.primaryDiagnosis) {
+      alert('Select a patient and enter the primary diagnosis before admitting.');
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/crm/admissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...admissionForm,
+          referringDoctor: admissionForm.referringDoctor || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Admission failed (${res.status}).`);
+      }
+      setActiveModal(null);
+      setAdmissionForm(emptyAdmissionForm);
+      alert('Patient admitted successfully.');
+      fetchPatients();
+      fetchDashboardMetrics();
+      setActiveModule('rooms');
+    } catch (err: any) {
+      alert(`Could not admit patient: ${err?.message || 'Network error'}`);
+    }
+  };
+
+  const handleCreateClinicalNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clinicalForm.patientId || !clinicalForm.subjective || !clinicalForm.objective || !clinicalForm.assessment || !clinicalForm.plan) {
+      alert('Patient and all four SOAP fields are required.');
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/clinical/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...clinicalForm,
+          icd10Diagnosis: clinicalForm.icd10Diagnosis || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Could not save clinical note (${res.status}).`);
+      }
+      setActiveModal(null);
+      setClinicalForm({
+        patientId: clinicalForm.patientId,
+        noteType: 'DOCTOR_CLINICAL_NOTE',
+        subjective: '',
+        objective: '',
+        assessment: '',
+        plan: '',
+        icd10Diagnosis: '',
+      });
+      alert('Clinical note saved successfully.');
+      fetchClinicalNotes();
+    } catch (err: any) {
+      alert(`Could not save clinical note: ${err?.message || 'Network error'}`);
+    }
+  };
+
+  const handleCreatePrescriptionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prescriptionForm.patientId || !prescriptionForm.doctorName || !prescriptionForm.medicationId || !prescriptionForm.dosage || !prescriptionForm.frequency) {
+      alert('Patient, prescriber, medication, dosage and frequency are required.');
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+      const res = await fetch(`${apiUrl}/pharmacy/prescriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...prescriptionForm,
+          durationDays: Number(prescriptionForm.durationDays),
+          instructions: prescriptionForm.instructions || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Could not issue prescription (${res.status}).`);
+      }
+      setActiveModal(null);
+      setPrescriptionForm({
+        patientId: '',
+        doctorName: '',
+        medicationId: '',
+        dosage: '',
+        frequency: '',
+        durationDays: 30,
+        instructions: '',
+      });
+      alert('Prescription issued successfully.');
+    } catch (err: any) {
+      alert(`Could not issue prescription: ${err?.message || 'Network error'}`);
+    }
   };
 
   if (isLoading) {
@@ -941,6 +1229,7 @@ export default function AdminDashboardPage() {
         <Header
           onToggleMobileMenu={() => setMobileMenuOpen(true)}
           onSelectModule={setActiveModule}
+          alertCount={dashboardMetrics?.clinical?.criticalVitalsAlerts ?? null}
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 space-y-6 pb-24 md:pb-8 pb-safe">
@@ -1154,7 +1443,10 @@ export default function AdminDashboardPage() {
                     <div className="mt-2.5 flex items-center justify-between text-xs">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-warning-soft text-warning border border-warning/20">
                         <AlertCircle className="w-3 h-3 mr-0.5" />
-                        {dashboardMetrics?.clinical?.criticalVitalsAlerts ?? 0} Critical Alerts
+                        {dashboardMetrics?.clinical?.criticalVitalsAlerts === null ||
+                        dashboardMetrics?.clinical?.criticalVitalsAlerts === undefined
+                          ? 'Alert feed not configured'
+                          : `${dashboardMetrics.clinical.criticalVitalsAlerts} Critical Alerts`}
                       </span>
                       <span className="text-[11px] text-muted-foreground font-medium">
                         {(dashboardMetrics?.admissions?.activeDetoxCases ?? 0) > 0 ? 'Taper Protocol' : 'Nominal'}
@@ -1350,87 +1642,32 @@ export default function AdminDashboardPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                       {(() => {
-                        const detoxOcc = dashboardMetrics?.census?.detoxWardOccupancy ?? 0;
-                        const detoxTotal = 6;
-                        const detoxPct = detoxTotal > 0 ? Math.round((detoxOcc / detoxTotal) * 100) : 0;
-
-                        const maleOcc = dashboardMetrics?.census?.inpatientMaleOccupancy ?? 0;
-                        const maleTotal = 16;
-                        const malePct = maleTotal > 0 ? Math.round((maleOcc / maleTotal) * 100) : 0;
-
-                        const femaleOcc = dashboardMetrics?.census?.inpatientFemaleOccupancy ?? 0;
-                        const femaleTotal = 8;
-                        const femalePct = femaleTotal > 0 ? Math.round((femaleOcc / femaleTotal) * 100) : 0;
-
-                        const vipOcc = dashboardMetrics?.census?.vipOccupancy ?? 0;
-                        const vipTotal = 2;
-                        const vipPct = vipTotal > 0 ? Math.round((vipOcc / vipTotal) * 100) : 0;
+                        const wardCard = (label: string, count: number | null) => (
+                          <div className="p-3.5 rounded-xl bg-surface-subtle border border-border space-y-2">
+                            <div className="flex justify-between items-center font-semibold">
+                              <span>{label}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-surface-elevated text-muted-foreground">
+                                {count === null ? 'NOT TRACKED' : `${count} ACTIVE`}
+                              </span>
+                            </div>
+                            {count === null ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                Ward-level capacity is not configured in the current schema; occupancy cannot be calculated.
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-muted-foreground">
+                                {count} active bed allocation(s) on record. A ward-specific capacity denominator is not available.
+                              </p>
+                            )}
+                          </div>
+                        );
 
                         return (
                           <>
-                            <div className="p-3.5 rounded-xl bg-surface-subtle border border-border space-y-2">
-                              <div className="flex justify-between items-center font-semibold">
-                                <span>Detox Ward</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-accent-soft text-accent">{detoxPct}%</span>
-                              </div>
-                              <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
-                                <div className="bg-accent h-1.5 rounded-full transition-all duration-300" style={{ width: `${detoxPct}%` }} />
-                              </div>
-                              <div className="flex justify-between text-[11px] text-muted-foreground">
-                                <span>{detoxOcc}/{detoxTotal} Beds</span>
-                                <span className={detoxOcc > 0 ? "text-accent font-medium" : "text-muted-foreground font-normal"}>
-                                  {detoxOcc > 0 ? `${detoxTotal - detoxOcc} Avail.` : '0 Occupied'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-surface-subtle border border-border space-y-2">
-                              <div className="flex justify-between items-center font-semibold">
-                                <span>Horizon (Male)</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-primary-soft text-primary">{malePct}%</span>
-                              </div>
-                              <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
-                                <div className="bg-primary h-1.5 rounded-full transition-all duration-300" style={{ width: `${malePct}%` }} />
-                              </div>
-                              <div className="flex justify-between text-[11px] text-muted-foreground">
-                                <span>{maleOcc}/{maleTotal} Beds</span>
-                                <span className={maleOcc > 0 ? "text-primary font-medium" : "text-muted-foreground font-normal"}>
-                                  {maleOcc > 0 ? `${maleTotal - maleOcc} Avail.` : '0 Occupied'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-surface-subtle border border-border space-y-2">
-                              <div className="flex justify-between items-center font-semibold">
-                                <span>Serenity (Female)</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-secondary-soft text-secondary">{femalePct}%</span>
-                              </div>
-                              <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
-                                <div className="bg-secondary h-1.5 rounded-full transition-all duration-300" style={{ width: `${femalePct}%` }} />
-                              </div>
-                              <div className="flex justify-between text-[11px] text-muted-foreground">
-                                <span>{femaleOcc}/{femaleTotal} Beds</span>
-                                <span className={femaleOcc > 0 ? "text-secondary font-medium" : "text-muted-foreground font-normal"}>
-                                  {femaleOcc > 0 ? `${femaleTotal - femaleOcc} Avail.` : '0 Occupied'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-surface-subtle border border-border space-y-2">
-                              <div className="flex justify-between items-center font-semibold">
-                                <span>VIP Suite</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-accent-soft text-accent">{vipPct}%</span>
-                              </div>
-                              <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
-                                <div className="bg-accent h-1.5 rounded-full transition-all duration-300" style={{ width: `${vipPct}%` }} />
-                              </div>
-                              <div className="flex justify-between text-[11px] text-muted-foreground">
-                                <span>{vipOcc}/{vipTotal} Beds</span>
-                                <span className={vipOcc > 0 ? "text-accent font-medium" : "text-muted-foreground font-normal"}>
-                                  {vipOcc > 0 ? `${vipTotal - vipOcc} Avail.` : '0 Occupied'}
-                                </span>
-                              </div>
-                            </div>
+                            {wardCard('Tracked bed allocations', dashboardMetrics?.census?.detoxWardOccupancy ?? null)}
+                            {wardCard('Horizon (Male)', dashboardMetrics?.census?.inpatientMaleOccupancy ?? null)}
+                            {wardCard('Serenity (Female)', dashboardMetrics?.census?.inpatientFemaleOccupancy ?? null)}
+                            {wardCard('VIP Suite', dashboardMetrics?.census?.vipOccupancy ?? null)}
                           </>
                         );
                       })()}
@@ -1533,7 +1770,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <div className="pt-1">
                             <button
-                              onClick={() => setActiveModal('new_appointment')}
+                              onClick={() => setActiveModal('book_appointment')}
                               className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover shadow-xs transition-all cursor-pointer"
                             >
                               <Plus className="w-3.5 h-3.5" />
@@ -1597,7 +1834,7 @@ export default function AdminDashboardPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h2 className="font-serif text-xl font-bold text-foreground">Master Patient Index & Registry</h2>
-                    <p className="text-xs text-muted-foreground">KDPA 2019 encrypted patient identity and admission profiles</p>
+                    <p className="text-xs text-muted-foreground">Patient identity and admission profiles. Field-level encryption is applied where enabled; statutory KDPA compliance is not certified by this application.</p>
                   </div>
                   <button
                     onClick={() => setActiveModal('register_patient')}
@@ -1677,7 +1914,9 @@ export default function AdminDashboardPage() {
                               <div className="font-semibold text-foreground">{p.name}</div>
                               <div className="text-[10px] font-mono text-muted-foreground">{p.id}</div>
                             </td>
-                            <td className="px-4 py-3 text-muted-foreground">{p.gender}, {p.age} yrs</td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {p.age === '—' ? '—' : `${p.gender}, ${p.age} yrs`}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="font-mono text-[11px]">{p.phone}</div>
                               <div className="text-[10px] text-muted-foreground">{p.county}</div>
@@ -1728,7 +1967,7 @@ export default function AdminDashboardPage() {
                     <p className="text-xs text-muted-foreground">Prospective patient intake, referral tracking, and bed reservation</p>
                   </div>
                   <button
-                    onClick={() => setActiveModal('register_patient')}
+                    onClick={() => setActiveModal('new_lead')}
                     className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs"
                   >
                     <Plus className="w-4 h-4" />
@@ -1814,8 +2053,11 @@ export default function AdminDashboardPage() {
                             <td className="px-4 py-3">
                               <button
                                 onClick={() => {
-                                  alert(`Admitting ${l.name} into Calyvia Inpatient Registry.`);
-                                  setActiveModule('rooms');
+                                  setAdmissionForm({
+                                    ...emptyAdmissionForm,
+                                    patientId: l.patientId || '',
+                                  });
+                                  setActiveModal('admit_patient');
                                 }}
                                 className="px-2.5 py-1 bg-primary text-primary-foreground rounded-lg text-[11px] font-semibold hover:bg-primary-hover shadow-xs"
                               >
@@ -1860,13 +2102,12 @@ export default function AdminDashboardPage() {
                         <th className="px-4 py-3">Clinician in Charge</th>
                         <th className="px-4 py-3">Type</th>
                         <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {appointments.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-xs text-muted-foreground">
+                          <td colSpan={6} className="py-12 text-center text-xs text-muted-foreground">
                             <CalendarIcon className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
                             <p className="font-semibold text-foreground">No appointments scheduled</p>
                             <p className="text-[11px] text-muted-foreground mt-0.5">Use &quot;Schedule Appointment&quot; above to book therapy, reviews, or consultations.</p>
@@ -1888,14 +2129,6 @@ export default function AdminDashboardPage() {
                                 {a.status}
                               </span>
                             </td>
-                            <td className="px-4 py-3">
-                              <button
-                                onClick={() => alert(`Opening appointment chart for ${a.id}`)}
-                                className="px-2.5 py-1 bg-surface border border-border text-foreground rounded-lg text-[11px] font-semibold hover:bg-surface-elevated"
-                              >
-                                Manage
-                              </button>
-                            </td>
                           </tr>
                         ))
                       )}
@@ -1916,7 +2149,13 @@ export default function AdminDashboardPage() {
                     <p className="text-xs text-muted-foreground">Versioned psychiatric evaluations, nursing charts, and SOAP progress documentation</p>
                   </div>
                   <button
-                    onClick={() => alert('Add Clinical Note dialog opened.')}
+                    onClick={() => {
+                      setClinicalForm({
+                        ...clinicalForm,
+                        patientId: selectedPatientId || patients[0]?.id || '',
+                      });
+                      setActiveModal('clinical_note');
+                    }}
                     className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs"
                   >
                     <Plus className="w-4 h-4" />
@@ -1924,14 +2163,31 @@ export default function AdminDashboardPage() {
                   </button>
                 </div>
 
-                <div className="space-y-4 pt-2">
-                  <div className="p-8 rounded-xl bg-surface-subtle border border-border text-center space-y-2">
-                    <FileText className="w-8 h-8 text-muted-foreground/40 mx-auto" />
-                    <p className="text-xs font-semibold text-foreground">No Clinical Progress Notes Recorded Yet</p>
-                    <p className="text-[11px] text-muted-foreground max-w-md mx-auto">
-                      Versioned psychiatric evaluations, nursing charts, and SOAP progress documentation will appear here once recorded by clinical personnel.
-                    </p>
-                  </div>
+                <div className="space-y-3 pt-2">
+                  {clinicalNotes.length === 0 ? (
+                    <div className="p-8 rounded-xl bg-surface-subtle border border-border text-center space-y-2">
+                      <FileText className="w-8 h-8 text-muted-foreground/40 mx-auto" />
+                      <p className="text-xs font-semibold text-foreground">No Clinical Progress Notes Recorded Yet</p>
+                      <p className="text-[11px] text-muted-foreground max-w-md mx-auto">
+                        Select a patient on the Patients registry to load their live SOAP notes, or append a new note above.
+                      </p>
+                    </div>
+                  ) : (
+                    clinicalNotes.map((note: any) => (
+                      <div key={note.id} className="p-4 rounded-xl bg-surface-subtle border border-border space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-foreground">{note.noteType || 'CLINICAL_NOTE'}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {note.createdAt ? new Date(note.createdAt).toLocaleString() : ''}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground"><strong>S:</strong> {note.subjective}</p>
+                        <p className="text-[11px] text-muted-foreground"><strong>O:</strong> {note.objective}</p>
+                        <p className="text-[11px] text-muted-foreground"><strong>A:</strong> {note.assessment}</p>
+                        <p className="text-[11px] text-muted-foreground"><strong>P:</strong> {note.plan}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1947,7 +2203,14 @@ export default function AdminDashboardPage() {
                     <p className="text-xs text-muted-foreground">Controlled substance inventory batches, re-order levels, and shift dispensation</p>
                   </div>
                   <button
-                    onClick={() => alert('Issue Prescription modal opened.')}
+                    onClick={() => {
+                      setPrescriptionForm({
+                        ...prescriptionForm,
+                        patientId: selectedPatientId || patients[0]?.id || '',
+                        doctorName: staffMembers.find((s: any) => s.role?.toLowerCase().includes('doctor'))?.name || '',
+                      });
+                      setActiveModal('issue_prescription');
+                    }}
                     className="inline-flex items-center space-x-1.5 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover shadow-xs"
                   >
                     <Plus className="w-4 h-4" />
@@ -2459,19 +2722,21 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
 
+              <div className="p-3 rounded-xl bg-warning-soft border border-warning/20 text-[11px] text-warning">
+                Reference display only. CIWA-Ar/COWS scoring is not captured or persisted to patient records in this build; use the paper protocol and record observations through clinical notes.
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-sans mt-4">
-                <div className="p-4 bg-surface-subtle rounded-xl border border-border">
-                  <h3 className="font-bold text-foreground text-sm">Nausea & Vomiting (0-7)</h3>
-                  <p className="text-muted-foreground text-[11px] mt-1">Score: 0 (None / Normal baseline)</p>
-                </div>
-                <div className="p-4 bg-surface-subtle rounded-xl border border-border">
-                  <h3 className="font-bold text-foreground text-sm">Tremors (0-7)</h3>
-                  <p className="text-muted-foreground text-[11px] mt-1">Score: 0 (No tremor present)</p>
-                </div>
-                <div className="p-4 bg-surface-subtle rounded-xl border border-border">
-                  <h3 className="font-bold text-foreground text-sm">Paroxysmal Sweats (0-7)</h3>
-                  <p className="text-muted-foreground text-[11px] mt-1">Score: 0 (No sweat / Normal baseline)</p>
-                </div>
+                {[
+                  ['Nausea & Vomiting (0-7)', 'Reference scale — no score captured'],
+                  ['Tremors (0-7)', 'Reference scale — no score captured'],
+                  ['Paroxysmal Sweats (0-7)', 'Reference scale — no score captured'],
+                ].map(([title, detail]) => (
+                  <div key={title} className="p-4 bg-surface-subtle rounded-xl border border-border">
+                    <h3 className="font-bold text-foreground text-sm">{title}</h3>
+                    <p className="text-muted-foreground text-[11px] mt-1">{detail}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -2496,16 +2761,16 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      STATUS: ONLINE
+                      STATUS: {aiStatus?.status || 'CHECKING'}
                     </span>
                     <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary-soft text-primary border border-primary/20">
-                      KDPA 2019
+                      ROLE-SCOPED
                     </span>
                   </div>
                 </div>
 
                 <p className="text-xs text-muted-foreground leading-relaxed pt-2">
-                  The Calyvia AI Assistant is accessible as a persistent floating copilot across the bottom-right corner of all authenticated pages. It executes read-only database tools, computes real-time operational summaries, assists with scheduling, and provides guidance across all 28 Calyvia modules.
+                  The Calyvia AI Assistant is available to authenticated roles permitted to use the ai_extension module. It executes deterministic, read-only database tools for operational summaries and module guidance. It does not diagnose, prescribe, or give dosage advice, and it is not an external LLM service.
                 </p>
               </div>
 
@@ -2519,7 +2784,7 @@ export default function AdminDashboardPage() {
                   <p className="text-muted-foreground text-[11px]">
                     Reads live bed census, ward occupancy, active detox cases, and daily therapy sessions directly from PostgreSQL.
                   </p>
-                  <span className="text-[10px] font-mono text-emerald-500">Live Supabase Pooler</span>
+                  <span className="text-[10px] font-mono text-emerald-500">Live database read</span>
                 </div>
 
                 <div className="bg-card p-5 rounded-2xl border border-border shadow-card space-y-2">
@@ -2530,7 +2795,7 @@ export default function AdminDashboardPage() {
                   <p className="text-muted-foreground text-[11px]">
                     Inspects today&apos;s clinical consultations, MDT reviews, therapy schedules, and clinician assignments.
                   </p>
-                  <span className="text-[10px] font-mono text-emerald-500">Live Supabase Pooler</span>
+                  <span className="text-[10px] font-mono text-emerald-500">Live database read</span>
                 </div>
 
                 <div className="bg-card p-5 rounded-2xl border border-border shadow-card space-y-2">
@@ -2541,7 +2806,7 @@ export default function AdminDashboardPage() {
                   <p className="text-muted-foreground text-[11px]">
                     Aggregates privacy-preserving census statistics, triage intake pipeline, and ward allocation without exposing PII.
                   </p>
-                  <span className="text-[10px] font-mono text-emerald-500">KDPA Masked</span>
+                  <span className="text-[10px] font-mono text-emerald-500">Aggregate only</span>
                 </div>
 
                 <div className="bg-card p-5 rounded-2xl border border-border shadow-card space-y-2">
@@ -2561,9 +2826,9 @@ export default function AdminDashboardPage() {
                     <span>get_staff_workload</span>
                   </div>
                   <p className="text-muted-foreground text-[11px]">
-                    Verifies active clinical staff, duty rosters, and medical licensing status under KMPDC and Nursing Council of Kenya (NCK).
+                    Reads active staff accounts from the database. Duty rosters and KMPDC/NCK licence verification are not implemented.
                   </p>
-                  <span className="text-[10px] font-mono text-emerald-500">Live Roster</span>
+                  <span className="text-[10px] font-mono text-emerald-500">Active staff accounts only</span>
                 </div>
 
                 <div className="bg-card p-5 rounded-2xl border border-border shadow-card space-y-2">
@@ -2572,7 +2837,7 @@ export default function AdminDashboardPage() {
                     <span>get_institutional_protocols</span>
                   </div>
                   <p className="text-muted-foreground text-[11px]">
-                    Verified institutional knowledge: CIWA-Ar alcohol scores, COWS opioid scores, and Nairobi West Hospital emergency MoUs.
+                    Static reference guidance for CIWA-Ar/COWS and emergency escalation. External hospital MoUs are not stored or verified in this application.
                   </p>
                   <span className="text-[10px] font-mono text-emerald-500">Healthcare Protocol</span>
                 </div>
@@ -2585,7 +2850,7 @@ export default function AdminDashboardPage() {
                   <span>Clinical Safety & Regulatory Guardrails</span>
                 </div>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Calyvia AI functions strictly as an operational and administrative copilot. It will never diagnose patients, prescribe pharmaceuticals, or modify medical treatment plans autonomously. All clinical recommendations cite verified institutional protocols and require validation by a licensed Calyvia physician.
+                  Calyvia AI functions strictly as an operational and administrative copilot. It does not diagnose patients, prescribe medicines, provide dosage advice, or modify treatment plans. Clinical questions are redirected to licensed staff; the built-in protocol text is reference only.
                 </p>
               </div>
             </div>
@@ -2600,30 +2865,39 @@ export default function AdminDashboardPage() {
                     <h2 className="font-serif text-xl font-bold text-foreground">Facility Reports & Executive Analytics</h2>
                     <p className="text-xs text-muted-foreground">Ministry of Health (MoH) statistical aggregates and financial audits</p>
                   </div>
-                  <button onClick={() => alert('Exporting KDPA-compliant report.')} className="px-3 py-1.5 bg-surface border border-border rounded-xl text-xs font-semibold hover:bg-surface-elevated flex items-center space-x-1">
+                  <button onClick={exportReportsCsv} className="px-3 py-1.5 bg-surface border border-border rounded-xl text-xs font-semibold hover:bg-surface-elevated flex items-center space-x-1">
                     <Download className="w-3.5 h-3.5" />
                     <span>Export CSV</span>
                   </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 text-xs">
                   <div className="p-4 rounded-xl bg-surface-subtle border border-border">
-                    <span className="text-muted-foreground">MTD Collections</span>
+                    <span className="text-muted-foreground">Collections to Date</span>
                     <div className="text-xl font-bold font-mono text-foreground mt-1">
-                      KES {Number(dashboardMetrics?.financials?.mtdRevenueCollected || 0).toLocaleString()}
+                      KES {Number(
+                        financialReport?.totalCollectedKES ??
+                          dashboardMetrics?.financials?.mtdRevenueCollected ??
+                          0,
+                      ).toLocaleString()}
                     </div>
-                    <span className="text-[10px] text-success">
-                      {(Number(dashboardMetrics?.financials?.mtdRevenueCollected) || 0) > 0 ? '+14.2% vs target' : 'Live Receipts'}
-                    </span>
+                    <span className="text-[10px] text-success">Live payment records</span>
                   </div>
                   <div className="p-4 rounded-xl bg-surface-subtle border border-border">
                     <span className="text-muted-foreground">Detox Completion Rate</span>
-                    <div className="text-xl font-bold font-serif text-foreground mt-1">0.0%</div>
-                    <span className="text-[10px] text-primary">Clinical Outcome</span>
+                    <div className="text-xl font-bold font-serif text-foreground mt-1">
+                      {formatReportRate(clinicalReport?.metrics?.detoxCompletionRate)}
+                    </div>
+                    <span className="text-[10px] text-primary">
+                      {clinicalReport?.metrics?.totalDetoxEpisodesCompleted ?? 0} of{' '}
+                      {clinicalReport?.metrics?.totalDetoxEpisodes ?? 0} episodes completed
+                    </span>
                   </div>
                   <div className="p-4 rounded-xl bg-surface-subtle border border-border">
                     <span className="text-muted-foreground">90-Day Sobriety Rate</span>
-                    <div className="text-xl font-bold font-serif text-foreground mt-1">0.0%</div>
-                    <span className="text-[10px] text-secondary">Aftercare Tracking</span>
+                    <div className="text-xl font-bold font-serif text-foreground mt-1">
+                      {formatReportRate(clinicalReport?.metrics?.aftercareSobrietyRetention90Days)}
+                    </div>
+                    <span className="text-[10px] text-secondary">Not tracked in the current dataset</span>
                   </div>
                 </div>
               </div>
@@ -2636,11 +2910,11 @@ export default function AdminDashboardPage() {
               <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="font-serif text-xl font-bold text-foreground">Security & Immutable Audit Trail (KDPA 2019)</h2>
-                    <p className="text-xs text-muted-foreground">Cryptographic logging of all EMR access events, logins, and data modifications</p>
+                    <h2 className="font-serif text-xl font-bold text-foreground">Security & Audit Trail</h2>
+                    <p className="text-xs text-muted-foreground">Recorded access and data-modification events from the live audit log</p>
                   </div>
                   <span className="px-3 py-1 bg-primary-soft text-primary text-xs font-bold rounded-full">
-                    AES-256-GCM Active
+                    Live audit log
                   </span>
                 </div>
 
@@ -2677,14 +2951,30 @@ export default function AdminDashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      <tr className="hover:bg-surface-subtle transition-colors">
-                        <td className="px-4 py-3 font-mono text-[11px]">Active Session</td>
-                        <td className="px-4 py-3 font-semibold text-foreground">{user?.fullName || 'Authenticated User'}</td>
-                        <td className="px-4 py-3 text-secondary font-medium">{user?.role || 'SUPER_ADMIN'}</td>
-                        <td className="px-4 py-3 font-mono text-primary font-bold">SESSION_ACTIVE</td>
-                        <td className="px-4 py-3 font-mono">AUTH_SESSION</td>
-                        <td className="px-4 py-3 font-mono text-muted-foreground">127.0.0.1</td>
-                      </tr>
+                      {auditLogs.length > 0 ? (
+                        auditLogs.map((log: any) => (
+                          <tr key={log.id} className="hover:bg-surface-subtle transition-colors">
+                            <td className="px-4 py-3 font-mono text-[11px]">
+                              {log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-foreground">
+                              {log.user?.fullName || log.user?.email || 'System'}
+                            </td>
+                            <td className="px-4 py-3 text-secondary font-medium">
+                              {log.role || log.user?.role || '—'}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-primary font-bold">{log.action}</td>
+                            <td className="px-4 py-3 font-mono">{log.resource}</td>
+                            <td className="px-4 py-3 font-mono text-muted-foreground">{log.ipAddress || '—'}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                            No audit events recorded yet.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -2853,16 +3143,16 @@ export default function AdminDashboardPage() {
               <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
                 <div>
                   <h2 className="font-serif text-xl font-bold text-foreground">Facility Master Configuration</h2>
-                  <p className="text-xs text-muted-foreground">Enterprise parameters, currency, timezone, and partner emergency hospitals</p>
+                  <p className="text-xs text-muted-foreground">Live facility identity, contact details, and regional parameters</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 text-xs">
                   <div className="p-4 rounded-xl bg-surface-subtle border border-border space-y-2">
                     <span className="font-semibold text-foreground">Facility Details</span>
                     <div className="space-y-1 text-muted-foreground">
-                      <p><strong>Name:</strong> Calyvia Wellness Center</p>
-                      <p><strong>Location:</strong> Mugutha, Ruiru, Kiambu County, Kenya</p>
-                      <p><strong>Hotline:</strong> +254 700 534 306</p>
-                      <p><strong>Partner Hospital:</strong> The Nairobi West Hospital (MoU Active)</p>
+                      <p><strong>Name:</strong> {facilityConfig?.facilityName || 'Not configured'}</p>
+                      <p><strong>Location:</strong> {facilityConfig?.location || 'Not configured'}</p>
+                      <p><strong>Hotline:</strong> {facilityConfig?.primaryPhone || 'Not configured'}</p>
+                      <p><strong>Email:</strong> {facilityConfig?.officialEmail || 'Not configured'}</p>
                     </div>
                   </div>
                   <div className="p-4 rounded-xl bg-surface-subtle border border-border space-y-2">
@@ -2870,8 +3160,8 @@ export default function AdminDashboardPage() {
                     <div className="space-y-1 text-muted-foreground">
                       <p><strong>Currency:</strong> KES (Kenya Shilling)</p>
                       <p><strong>Timezone:</strong> Africa/Nairobi (EAT / UTC+3)</p>
-                      <p><strong>Database:</strong> Supabase PostgreSQL (aws-0-eu-west-1)</p>
-                      <p><strong>Regulation:</strong> KDPA 2019 • KMPDC Registered</p>
+                      <p><strong>Website:</strong> {facilityConfig?.websiteUrl || 'Not configured'}</p>
+                      <p><strong>Compliance:</strong> Not verified in application — confirm KDPA registration with the facility DPO.</p>
                     </div>
                   </div>
                 </div>
@@ -2900,6 +3190,13 @@ export default function AdminDashboardPage() {
             <DocumentsView
               token={token}
               apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+              initialTab={
+                activeModule === 'discharge'
+                  ? 'discharges'
+                  : activeModule === 'aftercare'
+                    ? 'aftercare'
+                    : 'consents'
+              }
             />
           )}
 
@@ -2948,6 +3245,7 @@ export default function AdminDashboardPage() {
             <CommunicationView
               token={token}
               apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
+              userRole={user?.role}
             />
           )}
 
@@ -3148,15 +3446,23 @@ export default function AdminDashboardPage() {
               <div>
                 <label className="block text-foreground font-semibold mb-1">Clinician</label>
                 <select
+                  required
                   value={newAppointment.staffMemberName}
                   onChange={(e) => setNewAppointment({ ...newAppointment, staffMemberName: e.target.value })}
                   className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
                 >
-                  <option value="Dr. Evelyn Wanjiku">Dr. Evelyn Wanjiku (Psychiatrist)</option>
-                  <option value="Dr. Antony Baraka">Dr. Antony Baraka (Clinical Admin)</option>
-                  <option value="Counsellor David">Counsellor David (Addiction Therapist)</option>
-                  <option value="Dr. David Mwangi">Dr. David Mwangi (Medical Officer)</option>
+                  <option value="">Select a registered clinician</option>
+                  {staffMembers.map((member: any, idx: number) => (
+                    <option key={member.id || `${member.name}-${idx}`} value={member.name}>
+                      {member.name}{member.role ? ` (${member.role})` : ''}
+                    </option>
+                  ))}
                 </select>
+                {staffMembers.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    No staff records loaded. Register staff before scheduling an appointment.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -3199,6 +3505,402 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Modal: Record Admissions Lead */}
+      {activeModal === 'new_lead' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
+              <h3 className="font-serif text-lg font-bold text-foreground">Record Admissions Lead</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateLeadSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Full name</label>
+                <input
+                  required
+                  value={newLead.fullName}
+                  onChange={(e) => setNewLead({ ...newLead, fullName: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Phone</label>
+                  <input
+                    required
+                    value={newLead.phone}
+                    onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Email (optional)</label>
+                  <input
+                    type="email"
+                    value={newLead.email}
+                    onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Source channel</label>
+                  <input
+                    value={newLead.channel}
+                    onChange={(e) => setNewLead({ ...newLead, channel: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Urgency</label>
+                  <select
+                    value={newLead.urgencyLevel}
+                    onChange={(e) => setNewLead({ ...newLead, urgencyLevel: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="NORMAL">Normal</option>
+                    <option value="HIGH">High</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Substances used (optional)</label>
+                <input
+                  value={newLead.substancesUsed}
+                  onChange={(e) => setNewLead({ ...newLead, substancesUsed: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Notes (optional)</label>
+                <textarea
+                  rows={3}
+                  value={newLead.notes}
+                  onChange={(e) => setNewLead({ ...newLead, notes: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 border border-border rounded-xl text-foreground font-medium hover:bg-surface-elevated"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary-hover shadow-xs"
+                >
+                  Save Lead
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Process Formal Admission */}
+      {activeModal === 'admit_patient' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
+              <h3 className="font-serif text-lg font-bold text-foreground">Process Patient Admission</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAdmitPatientSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Patient</label>
+                <select
+                  required
+                  value={admissionForm.patientId}
+                  onChange={(e) => setAdmissionForm({ ...admissionForm, patientId: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                >
+                  <option value="">Select a patient</option>
+                  {patients.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName || p.name || p.registrationNumber || p.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Admission type</label>
+                  <select
+                    value={admissionForm.admissionType}
+                    onChange={(e) => setAdmissionForm({ ...admissionForm, admissionType: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="VOLUNTARY">Voluntary</option>
+                    <option value="FAMILY_ESCORTED">Family escorted</option>
+                    <option value="MEDICAL_TRANSFER">Medical transfer</option>
+                    <option value="COURT_ORDERED">Court ordered</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Program</label>
+                  <select
+                    value={admissionForm.programType}
+                    onChange={(e) => setAdmissionForm({ ...admissionForm, programType: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="DETOX_ONLY">Detox only</option>
+                    <option value="REHAB_30_DAYS">30-day rehabilitation</option>
+                    <option value="REHAB_60_DAYS">60-day rehabilitation</option>
+                    <option value="REHAB_90_DAYS">90-day rehabilitation</option>
+                    <option value="OUTPATIENT">Outpatient</option>
+                    <option value="AFTERCARE_ONLY">Aftercare only</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Primary diagnosis</label>
+                <input
+                  required
+                  value={admissionForm.primaryDiagnosis}
+                  onChange={(e) => setAdmissionForm({ ...admissionForm, primaryDiagnosis: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Referring doctor (optional)</label>
+                <input
+                  value={admissionForm.referringDoctor}
+                  onChange={(e) => setAdmissionForm({ ...admissionForm, referringDoctor: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 border border-border rounded-xl text-foreground font-medium hover:bg-surface-elevated"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary-hover shadow-xs"
+                >
+                  Admit Patient
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Append Clinical Note */}
+      {activeModal === 'clinical_note' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
+              <h3 className="font-serif text-lg font-bold text-foreground">Append Clinical Note</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateClinicalNoteSubmit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Patient</label>
+                  <select
+                    required
+                    value={clinicalForm.patientId}
+                    onChange={(e) => setClinicalForm({ ...clinicalForm, patientId: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="">Select a patient</option>
+                    {patients.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        {p.fullName || p.name || p.registrationNumber || p.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Note type</label>
+                  <select
+                    value={clinicalForm.noteType}
+                    onChange={(e) => setClinicalForm({ ...clinicalForm, noteType: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="PSYCHIATRIC_EVALUATION">Psychiatric evaluation</option>
+                    <option value="DOCTOR_CLINICAL_NOTE">Doctor clinical note</option>
+                    <option value="NURSING_SHIFT_NOTE">Nursing shift note</option>
+                    <option value="MDT_REVIEW">MDT review</option>
+                    <option value="COUNSELLING_PROGRESS">Counselling progress</option>
+                  </select>
+                </div>
+              </div>
+              {[
+                ['subjective', 'Subjective'],
+                ['objective', 'Objective'],
+                ['assessment', 'Assessment'],
+                ['plan', 'Plan'],
+              ].map(([field, label]) => (
+                <div key={field}>
+                  <label className="block text-foreground font-semibold mb-1">{label}</label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={(clinicalForm as any)[field]}
+                    onChange={(e) => setClinicalForm({ ...clinicalForm, [field]: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="block text-foreground font-semibold mb-1">ICD-10 code (optional)</label>
+                <input
+                  value={clinicalForm.icd10Diagnosis}
+                  onChange={(e) => setClinicalForm({ ...clinicalForm, icd10Diagnosis: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 border border-border rounded-xl text-foreground font-medium hover:bg-surface-elevated"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary-hover shadow-xs"
+                >
+                  Save Note
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Issue Prescription */}
+      {activeModal === 'issue_prescription' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-surface border border-border rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border sticky top-0 bg-surface z-10">
+              <h3 className="font-serif text-lg font-bold text-foreground">Issue Prescription</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreatePrescriptionSubmit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Patient</label>
+                  <select
+                    required
+                    value={prescriptionForm.patientId}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, patientId: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                  >
+                    <option value="">Select a patient</option>
+                    {patients.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        {p.fullName || p.name || p.registrationNumber || p.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Prescriber</label>
+                  <input
+                    required
+                    value={prescriptionForm.doctorName}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, doctorName: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Medication</label>
+                <select
+                  required
+                  value={prescriptionForm.medicationId}
+                  onChange={(e) => setPrescriptionForm({ ...prescriptionForm, medicationId: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none"
+                >
+                  <option value="">Select a formulary medication</option>
+                  {pharmacyStock.filter((m: any) => m.id).map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                {pharmacyStock.filter((m: any) => m.id).length === 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1">No medication records loaded. Register stock in the pharmacy formulary first.</p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Dosage</label>
+                  <input
+                    required
+                    value={prescriptionForm.dosage}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, dosage: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Frequency</label>
+                  <input
+                    required
+                    value={prescriptionForm.frequency}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, frequency: e.target.value })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground font-semibold mb-1">Duration (days)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={prescriptionForm.durationDays}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, durationDays: Number(e.target.value) })}
+                    className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-foreground font-semibold mb-1">Instructions (optional)</label>
+                <textarea
+                  rows={2}
+                  value={prescriptionForm.instructions}
+                  onChange={(e) => setPrescriptionForm({ ...prescriptionForm, instructions: e.target.value })}
+                  className="w-full bg-surface-subtle border border-border rounded-xl p-2.5 text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 border border-border rounded-xl text-foreground font-medium hover:bg-surface-elevated"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary-hover shadow-xs"
+                >
+                  Issue Prescription
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Create & Provision Staff Account */}
       {isCreateStaffOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
@@ -3654,7 +4356,7 @@ export default function AdminDashboardPage() {
                 Provision a new initial password for <span className="font-semibold text-foreground font-mono">{selectedStaffUser.email}</span>.
               </p>
               <p className="text-[10px] text-muted-foreground/80">
-                The employee can sign in immediately using these credentials. In accordance with KDPA 2019, they will be required to change this password on next login.
+                The employee can sign in with these credentials. The “must change password” flag is recorded on the account, but this portal build does not yet enforce a forced password-change screen after login.
               </p>
             </div>
 

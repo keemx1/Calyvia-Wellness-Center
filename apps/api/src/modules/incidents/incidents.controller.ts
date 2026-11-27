@@ -15,6 +15,15 @@ export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}
 
   @Post()
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.FACILITY_ADMIN,
+    UserRole.MEDICAL_DIRECTOR,
+    UserRole.DOCTOR_PSYCHIATRIST,
+    UserRole.NURSE,
+    UserRole.COUNSELLOR,
+    UserRole.MANAGEMENT_EXECUTIVE,
+  )
   @AuditLog({ action: 'REPORT_CRITICAL_INCIDENT', resource: 'INCIDENT' })
   @ApiOperation({ summary: 'Submit confidential incident report (absconding, medical crisis, contraband)' })
   async reportIncident(@Body() dto: CreateIncidentDto) {
