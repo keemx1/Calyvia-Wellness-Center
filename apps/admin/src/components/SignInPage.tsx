@@ -221,14 +221,9 @@ export const SignInPage: React.FC = () => {
               className="w-10 h-10 object-contain"
             />
           </div>
-          <div>
-            <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-              Calyvia Wellness Center
-            </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Hospital Management Information System (HMIS / EMR)
-            </p>
-          </div>
+          <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+            Calyvia Wellness Center
+          </h1>
         </div>
 
         {/* Institutional Sign In Form */}
@@ -241,9 +236,6 @@ export const SignInPage: React.FC = () => {
                 <span>Admin Provisioned</span>
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Enter your institutional Calyvia credentials to access assigned clinical and administrative modules.
-            </p>
           </div>
 
           {errorMessage && (
@@ -322,11 +314,11 @@ export const SignInPage: React.FC = () => {
             </div>
 
             {/* Cloudflare Turnstile */}
-            <div className="space-y-1.5 pt-1">
+            <div className="space-y-1.5 pt-1 text-center">
               <label className="block text-xs font-semibold text-foreground">
                 Security Verification
               </label>
-              <div ref={widgetHostRef} className="min-h-[65px]" />
+              <div ref={widgetHostRef} className="flex min-h-[65px] justify-center" />
               {siteKeyStatus === 'loading' && (
                 <p className="text-[11px] text-muted-foreground">Loading security verification…</p>
               )}
@@ -363,23 +355,6 @@ export const SignInPage: React.FC = () => {
           </form>
         </div>
       </div>
-
-      {/* Security & Regulatory Compliance Footer */}
-      <footer className="w-full border-t border-border/60 py-4 px-4 text-center text-[11px] text-muted-foreground space-y-1">
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-          <span className="flex items-center gap-1 text-primary">
-            <Shield className="w-3.5 h-3.5" />
-            <span>Authorized Healthcare Personnel Only</span>
-          </span>
-          <span>•</span>
-          <span>Kenya Data Protection Act, 2019 (Sections 44–47)</span>
-          <span>•</span>
-          <span>Argon2id & AES-256-GCM Cryptographic Protection</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground/80">
-          Calyvia Wellness Center • Behind Full Gospel Church, Mugutha, Ruiru, Kiambu County
-        </p>
-      </footer>
 
       {/* Forgot Password Modal */}
       {showForgotModal && (
