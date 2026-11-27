@@ -40,6 +40,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://challenges.cloudflare.com" crossOrigin="anonymous" />
+      </head>
       <body className="bg-background text-foreground min-h-screen antialiased flex flex-col font-sans transition-colors duration-200">
         <script
           dangerouslySetInnerHTML={{

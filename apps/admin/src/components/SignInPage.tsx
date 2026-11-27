@@ -55,6 +55,7 @@ export const SignInPage: React.FC = () => {
   // the secret key is never sent to this browser.
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [siteKeyStatus, setSiteKeyStatus] = useState<SiteKeyStatus>('loading');
+  const [scriptStatus, setScriptStatus] = useState<SiteKeyStatus>('loading');
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const widgetHostRef = useRef<HTMLDivElement | null>(null);
@@ -62,6 +63,22 @@ export const SignInPage: React.FC = () => {
 
   // Forgot Password Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
+
+  // The widget is ready only when both the public site key and the script are.
+  const verificationStatus: SiteKeyStatus =
+    siteKeyStatus === 'unavailable' || scriptStatus === 'unavailable'
+      ? 'unavailable'
+      : siteKeyStatus === 'ready' && scriptStatus === 'ready'
+        ? 'ready'
+        : 'loading';
+
+  // The script may already be cached from a previous mount.
+  useEffect(() => {
+    if (window.turnstile) {
+      setTurnstileReady(true);
+      setScriptStatus('ready');
+    }
+  }, []);
 
   // Fetch the public site key. The secret key stays on the API.
   useEffect(() => {
@@ -151,7 +168,7 @@ export const SignInPage: React.FC = () => {
       setErrorMessage('Please provide both your institutional email and password.');
       return;
     }
-    if (siteKeyStatus !== 'ready' || !siteKey) {
+    if (verificationStatus !== 'ready' || !siteKey) {
       setErrorMessage('Security verification is unavailable. Please contact IT.');
       return;
     }
@@ -175,17 +192,19 @@ export const SignInPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex selection:bg-primary/20 transition-colors duration-200">
-      {siteKeyStatus === 'ready' && siteKey && (
-        <Script
-          src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-          strategy="afterInteractive"
-          onLoad={() => setTurnstileReady(true)}
-          onError={() => {
-            setSiteKeyStatus('unavailable');
-            setErrorMessage('Security verification could not be loaded. Please contact IT.');
-          }}
-        />
-      )}
+      {/* Start the script immediately, in parallel with the site-key fetch. */}
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+        strategy="afterInteractive"
+        onLoad={() => {
+          setTurnstileReady(true);
+          setScriptStatus('ready');
+        }}
+        onError={() => {
+          setScriptStatus('unavailable');
+          setErrorMessage('Security verification could not be loaded. Please contact IT.');
+        }}
+      />
 
       {/* Left half: full-bleed image (hidden on small screens) */}
       <div
@@ -333,15 +352,15 @@ export const SignInPage: React.FC = () => {
                   Security Verification
                 </label>
                 <div ref={widgetHostRef} className="flex min-h-[65px] justify-center" />
-                {siteKeyStatus === 'loading' && (
+                {verificationStatus === 'loading' && (
                   <p className="text-[11px] text-muted-foreground">Loading security verification…</p>
                 )}
-                {siteKeyStatus === 'unavailable' && (
+                {verificationStatus === 'unavailable' && (
                   <p className="text-[11px] text-danger">
                     Security verification is unavailable. Please contact IT.
                   </p>
                 )}
-                {siteKeyStatus === 'ready' && !turnstileToken && (
+                {verificationStatus === 'ready' && !turnstileToken && (
                   <p className="text-[11px] text-muted-foreground">
                     Please complete the verification checkbox above.
                   </p>
@@ -351,7 +370,7 @@ export const SignInPage: React.FC = () => {
               {/* Sign In Button */}
               <button
                 type="submit"
-                disabled={isSubmitting || siteKeyStatus !== 'ready' || !turnstileToken}
+                disabled={isSubmitting || verificationStatus !== 'ready' || !turnstileToken}
                 className="w-full mt-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-[0.99] shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
