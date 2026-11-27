@@ -1,6 +1,19 @@
-import { Controller, Post, Body, Get, Patch, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Patch,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  Header,
+  Ip,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SecurityService } from './security.service';
+import { TurnstileService } from './turnstile.service';
 import {
   LoginDto,
   RefreshTokenDto,
@@ -20,14 +33,28 @@ import { UserRole } from '@calyvia/shared';
 @ApiTags('Security & Authentication (Module 24)')
 @Controller('auth')
 export class SecurityController {
-  constructor(private readonly securityService: SecurityService) {}
+  constructor(
+    private readonly securityService: SecurityService,
+    private readonly turnstileService: TurnstileService,
+  ) {}
+
+  @Get('turnstile/site-key')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiOperation({ summary: 'Public Turnstile site key for the admin login widget' })
+  @ApiResponse({ status: 200, description: 'Returns the public site key (never the secret)' })
+  getTurnstileSiteKey() {
+    return { siteKey: this.turnstileService.getSiteKey() };
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Staff login using email & password' })
+  @ApiOperation({ summary: 'Staff login using email, password & Turnstile token' })
   @ApiResponse({ status: 200, description: 'JWT tokens and user profile returned' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials or account not authorized' })
-  async login(@Body() loginDto: LoginDto) {
+  @ApiResponse({ status: 401, description: 'Invalid credentials, account not authorized, or failed verification' })
+  @ApiResponse({ status: 503, description: 'Turnstile verification is unavailable or misconfigured' })
+  async login(@Body() loginDto: LoginDto, @Ip() clientIp: string) {
+    // Verify the challenge before any credential check or token minting.
+    await this.turnstileService.verify(loginDto.turnstileToken, clientIp);
     return this.securityService.login(loginDto);
   }
 

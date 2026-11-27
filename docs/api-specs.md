@@ -8,13 +8,17 @@
 
 ## 1. Authentication & Security (Module 24)
 
+### `GET /auth/turnstile/site-key`
+Public endpoint used by the admin login page to load the Cloudflare Turnstile site key. Returns `{ "siteKey": "..." }` or `{ "siteKey": null }` when Turnstile is not configured. The secret key is never returned.
+
 ### `POST /auth/login`
-Staff login endpoint. Returns access token (15m expiry) and refresh token (7d expiry).
+Staff login endpoint. The Turnstile token is verified with Cloudflare before credentials are checked or JWTs are minted. Returns access token (15m expiry) and refresh token (7d expiry).
 ```json
 // Request
 {
   "email": "admin@calyviawellness.co.ke",
-  "password": "Calyvia#2026"
+  "password": "Calyvia#2026",
+  "turnstileToken": "0x4AAAAAAA..."
 }
 
 // Response (200 OK)

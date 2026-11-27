@@ -49,7 +49,12 @@ interface AuthContextType {
   user: AuthenticatedUser | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; error?: string }>;
+  login: (
+    email: string,
+    password: string,
+    turnstileToken: string,
+    rememberMe?: boolean,
+  ) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: UpdateProfileData) => Promise<{ success: boolean; message?: string; error?: string }>;
   requestAccess: (data: RequestAccessData) => Promise<{ success: boolean; message?: string; error?: string }>;
@@ -217,6 +222,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (
     email: string,
     password: string,
+    turnstileToken: string,
     rememberMe = true,
   ): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
@@ -228,7 +234,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          turnstileToken,
+        }),
       });
 
       const data = await res.json();

@@ -68,6 +68,7 @@ describe('SecurityService (Authentication & Password Security)', () => {
       service.login({
         email: 'admin@calyviawellness.co.ke',
         password: 'Calyvia#2026',
+        turnstileToken: 'test-turnstile-token',
       }),
     ).rejects.toThrow(UnauthorizedException);
   });
@@ -79,6 +80,7 @@ describe('SecurityService (Authentication & Password Security)', () => {
       service.login({
         email: 'unknown@calyviawellness.co.ke',
         password: 'BadPassword',
+        turnstileToken: 'test-turnstile-token',
       }),
     ).rejects.toThrow(UnauthorizedException);
   });
@@ -100,6 +102,7 @@ describe('SecurityService (Authentication & Password Security)', () => {
       service.login({
         email: 'former.staff@calyviawellness.co.ke',
         password: rawPassword,
+        turnstileToken: 'test-turnstile-token',
       }),
     ).rejects.toThrow('User account has been deactivated');
   });
