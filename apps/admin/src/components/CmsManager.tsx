@@ -116,15 +116,26 @@ function blocksToBody(blocks: CmsPost['content']): string {
     .join('\n');
 }
 
-function rebuildMessage(rebuild?: CmsPost['rebuild']): string {
+type RebuildAction = 'save' | 'publish' | 'unpublish';
+
+function rebuildMessage(rebuild?: CmsPost['rebuild'], action: RebuildAction = 'save'): string {
   if (!rebuild) return '';
+  const removing = action === 'unpublish';
+
   if (rebuild.triggered) {
-    return 'Saved. Website rebuild started — the post will appear on the live site in about 1–2 minutes.';
+    return removing
+      ? 'Saved. Website rebuild started — the post will disappear from the live site in about 1–2 minutes.'
+      : 'Saved. Website rebuild started — the post will appear on the live site in about 1–2 minutes.';
   }
   if (rebuild.reason === 'not_configured') {
-    return 'Saved, but the website rebuild hook is not configured. Ask the administrator to set NETLIFY_CMS_BUILD_HOOK_URL in Coolify.';
+    const visibility = removing
+      ? ' The post will remain visible on the live site until a rebuild runs.'
+      : '';
+    return `Saved, but the website rebuild hook is not configured. Ask the administrator to set NETLIFY_CMS_BUILD_HOOK_URL in Coolify.${visibility}`;
   }
-  return 'Saved, but the automatic website rebuild failed. The post is stored and can be republished after checking the build hook.';
+  return removing
+    ? 'Saved, but the automatic website rebuild failed. The post may still appear on the live site until the build hook is fixed.'
+    : 'Saved, but the automatic website rebuild failed. The post is stored and can be republished after checking the build hook.';
 }
 
 export function CmsManager() {
@@ -253,7 +264,7 @@ export function CmsManager() {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || `Update failed (HTTP ${res.status})`);
-      setNotice(rebuildMessage(data.rebuild));
+      setNotice(rebuildMessage(data.rebuild, publish ? 'publish' : 'unpublish'));
       setPosts((prev) => prev.map((item) => (item.id === post.id ? data : item)));
     } catch (err: any) {
       setError(err?.message || 'Could not update post status.');
