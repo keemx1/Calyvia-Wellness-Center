@@ -7,6 +7,7 @@ import {
   DoorOpen,
   Plus,
   RefreshCw,
+  Trash2,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -114,6 +115,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ token, apiUrl }) => {
   const [assignTarget, setAssignTarget] = useState<{ room: Room; bed: Bed } | null>(null);
   const [transferTarget, setTransferTarget] = useState<{ bed: Bed; allocation: Allocation } | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<{ bed: Bed; allocation: Allocation } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ room: Room; bed: Bed } | null>(null);
   const [admitOpen, setAdmitOpen] = useState(false);
 
   // Forms
@@ -190,6 +192,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ token, apiUrl }) => {
     setAssignTarget(null);
     setTransferTarget(null);
     setReleaseTarget(null);
+    setDeleteTarget(null);
     setAdmitOpen(false);
     setBedForm({ bedNumber: '', dailyRate: '' });
     setAssignAdmissionId('');
@@ -283,6 +286,20 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ token, apiUrl }) => {
       if (!releaseTarget) throw new Error('No allocation selected.');
       await post(`/rooms/allocations/${releaseTarget.allocation.id}/release`);
       return `${releaseTarget.bed.bedNumber} released and now available.`;
+    });
+
+  const handleDeleteBed = () =>
+    run(async () => {
+      if (!deleteTarget) throw new Error('No bed selected.');
+      const res = await fetch(
+        `${apiUrl}/rooms/${deleteTarget.room.id}/beds/${deleteTarget.bed.id}`,
+        { method: 'DELETE', headers: authHeaders },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || `Request failed (${res.status})`);
+      }
+      return `Bed ${deleteTarget.bed.bedNumber} deleted. Past allocations were retained.`;
     });
 
   // Derived board stats
@@ -471,16 +488,27 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ token, apiUrl }) => {
                           ) : isOccupied ? (
                             <div className="text-[10px] text-amber-600">{bed.status}</div>
                           ) : (
-                            <button
-                              onClick={() => {
-                                setAssignTarget({ room, bed });
-                                setAdmitOpen(false);
-                                setAssignAdmissionId(activeAdmissions[0]?.id || '');
-                              }}
-                              className="text-[10px] font-semibold text-primary hover:underline w-full"
-                            >
-                              Assign
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setAssignTarget({ room, bed });
+                                  setAdmitOpen(false);
+                                  setAssignAdmissionId(activeAdmissions[0]?.id || '');
+                                }}
+                                className="text-[10px] font-semibold text-primary hover:underline"
+                              >
+                                Assign
+                              </button>
+                              <span className="text-muted-foreground">·</span>
+                              <button
+                                onClick={() => setDeleteTarget({ room, bed })}
+                                className="text-[10px] font-semibold text-danger hover:underline inline-flex items-center gap-0.5"
+                                title="Delete bed (retains allocation history)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
+                              </button>
+                            </div>
                           )}
                         </div>
                       );
@@ -804,6 +832,28 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ token, apiUrl }) => {
               <button onClick={handleRelease} disabled={busy} className={BTN_PRIMARY}>
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {busy ? 'Releasing…' : 'Release Bed'}
+              </button>
+            </div>
+          </div>
+        )}
+
+      {/* Delete bed modal */}
+      {deleteTarget &&
+        modalShell(
+          `Delete ${deleteTarget.bed.bedNumber}?`,
+          `${deleteTarget.room.roomName} · ${deleteTarget.room.roomNumber}`,
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              This removes the bed from the occupancy board. Past admission and allocation records
+              are retained for audit, and the bed number can be reused later.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={closeModals} className={BTN_SECONDARY}>
+                Cancel
+              </button>
+              <button onClick={handleDeleteBed} disabled={busy} className={BTN_PRIMARY}>
+                <Trash2 className="w-3.5 h-3.5" />
+                {busy ? 'Deleting…' : 'Delete Bed'}
               </button>
             </div>
           </div>

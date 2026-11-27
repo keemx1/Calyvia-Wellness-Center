@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
   RoomsService,
@@ -49,6 +59,15 @@ export class RoomsController {
   @ApiOperation({ summary: 'Add a bed to an existing room' })
   async createBed(@Param('id') id: string, @Body() dto: CreateBedDto) {
     return this.roomsService.createBed(id, dto);
+  }
+
+  @Delete(':roomId/beds/:id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.FACILITY_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @AuditLog({ action: 'DELETE_BED', resource: 'BED' })
+  @ApiOperation({ summary: 'Delete an unused bed (retains allocation history)' })
+  async deleteBed(@Param('roomId') roomId: string, @Param('id') id: string) {
+    return this.roomsService.deleteBed(roomId, id);
   }
 
   @Post('allocations')

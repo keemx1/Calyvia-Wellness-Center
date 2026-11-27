@@ -20,8 +20,20 @@ function makePrisma() {
   const prisma: any = {
     query: jest.fn(async () => ({ rows: [] })),
     room: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() },
-    bed: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() },
-    bedAllocation: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    bed: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    bedAllocation: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     admission: { findUnique: jest.fn(), findMany: jest.fn() },
     patient: { findUnique: jest.fn(), update: jest.fn() },
     $transaction: jest.fn(async (fn: any) => fn(tx)),
@@ -102,6 +114,18 @@ describe('RoomsService', () => {
       expect(prisma.bed.create).not.toHaveBeenCalled();
     });
 
+    it('allows reusing a bed number after the previous bed was deleted', async () => {
+      const prisma = makePrisma();
+      prisma.room.findUnique.mockResolvedValue({ id: 'room-1', roomNumber: 'R-101' });
+      prisma.bed.findMany.mockResolvedValue([]);
+      const service = new RoomsService(prisma);
+
+      await service.createBed('room-1', { bedNumber: 'B1' });
+      expect(prisma.bed.findMany).toHaveBeenCalledWith({
+        where: { roomId: 'room-1', bedNumber: 'B1', isActive: true },
+      });
+    });
+
     it('defaults the daily rate to 5000 when not provided', async () => {
       const prisma = makePrisma();
       prisma.room.findUnique.mockResolvedValue({ id: 'room-1', roomNumber: 'R-101' });
@@ -113,6 +137,72 @@ describe('RoomsService', () => {
       expect(prisma.bed.create).toHaveBeenCalledWith({
         data: { roomId: 'room-1', bedNumber: 'B1', dailyRate: 5000 },
       });
+    });
+  });
+
+  describe('deleteBed', () => {
+    const activeBed = {
+      id: 'bed-1',
+      roomId: 'room-1',
+      bedNumber: 'B1',
+      status: 'AVAILABLE',
+      isActive: true,
+    };
+
+    it('rejects a bed that does not belong to the room', async () => {
+      const prisma = makePrisma();
+      prisma.bed.findUnique.mockResolvedValue({ ...activeBed, roomId: 'other-room' });
+      const service = new RoomsService(prisma);
+
+      await expect(service.deleteBed('room-1', 'bed-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects an already deleted bed', async () => {
+      const prisma = makePrisma();
+      prisma.bed.findUnique.mockResolvedValue({ ...activeBed, isActive: false });
+      const service = new RoomsService(prisma);
+
+      await expect(service.deleteBed('room-1', 'bed-1')).rejects.toThrow('already been deleted');
+    });
+
+    it('blocks deletion while the bed is occupied', async () => {
+      const prisma = makePrisma();
+      prisma.bed.findUnique.mockResolvedValue({ ...activeBed, status: 'OCCUPIED' });
+      const service = new RoomsService(prisma);
+
+      await expect(service.deleteBed('room-1', 'bed-1')).rejects.toThrow('Release or transfer');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('blocks deletion while an allocation is active', async () => {
+      const prisma = makePrisma();
+      prisma.bed.findUnique.mockResolvedValue(activeBed);
+      prisma.bedAllocation.findMany.mockResolvedValue([{ id: 'alloc-1' }]);
+      const service = new RoomsService(prisma);
+
+      await expect(service.deleteBed('room-1', 'bed-1')).rejects.toThrow('active allocation');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('soft-deletes an unused bed while retaining allocation history', async () => {
+      const prisma = makePrisma();
+      prisma.bed.findUnique.mockResolvedValue(activeBed);
+      prisma.bed.findMany.mockResolvedValue([]);
+      prisma.bedAllocation.findMany.mockResolvedValue([]);
+      prisma.__tx.bed.update.mockResolvedValue({ id: 'bed-1', isActive: false });
+      const service = new RoomsService(prisma);
+
+      const result = await service.deleteBed('room-1', 'bed-1');
+
+      expect(result.success).toBe(true);
+      expect(result.bedNumber).toBe('B1');
+      expect(prisma.__tx.bed.update).toHaveBeenCalledWith({
+        where: { id: 'bed-1' },
+        data: { isActive: false },
+      });
+      expect(prisma.bed.delete).not.toHaveBeenCalled();
+      expect(prisma.bedAllocation.delete).not.toHaveBeenCalled();
     });
   });
 

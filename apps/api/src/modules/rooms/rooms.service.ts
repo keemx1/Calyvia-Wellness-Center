@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { BedStatus } from '@calyvia/shared';
 
@@ -159,7 +164,9 @@ export class RoomsService {
         throw new NotFoundException(`Room ${roomId} not found.`);
       }
 
-      const duplicates = await this.prisma.bed.findMany({ where: { roomId, bedNumber } });
+      const duplicates = await this.prisma.bed.findMany({
+        where: { roomId, bedNumber, isActive: true },
+      });
       if (duplicates.length > 0) {
         throw new BadRequestException(`Bed ${bedNumber} already exists in room ${room.roomNumber}.`);
       }
@@ -343,6 +350,76 @@ export class RoomsService {
       throw new BadRequestException(
         `Failed to release allocation: ${err.message || 'Database error'}`,
       );
+    }
+  }
+
+  /**
+   * Delete a bed from the active room board without destroying allocation
+   * history. bed_allocations.bed_id is ON DELETE RESTRICT, so a hard delete
+   * would fail (or require deleting historical admissions links). Marking the
+   * bed inactive keeps past allocations auditable while hiding it from staff.
+   */
+  async deleteBed(roomId: string, bedId: string) {
+    if (!this.prisma.bed || !this.prisma.bedAllocation) {
+      throw new ServiceUnavailableException('Bed data service is unavailable.');
+    }
+
+    try {
+      const bed = await this.prisma.bed.findUnique({ where: { id: bedId } });
+      if (!bed || bed.roomId !== roomId) {
+        throw new NotFoundException(`Bed ${bedId} not found in room ${roomId}.`);
+      }
+      if (bed.isActive === false) {
+        throw new BadRequestException('This bed has already been deleted.');
+      }
+      if (bed.status === BedStatus.OCCUPIED || bed.status === BedStatus.RESERVED) {
+        throw new BadRequestException(
+          'Release or transfer the patient before deleting this bed.',
+        );
+      }
+
+      const activeAllocations = await this.prisma.bedAllocation.findMany({
+        where: { bedId, isActive: true },
+      });
+      if (activeAllocations.length > 0) {
+        throw new BadRequestException(
+          'This bed has an active allocation and cannot be deleted.',
+        );
+      }
+
+      return await this.prisma.$transaction(async (tx: any) => {
+        const racedAllocations = await tx.bedAllocation.findMany({
+          where: { bedId, isActive: true },
+        });
+        if (racedAllocations.length > 0) {
+          throw new BadRequestException(
+            'This bed has an active allocation and cannot be deleted.',
+          );
+        }
+
+        const deleted = await tx.bed.update({
+          where: { id: bedId },
+          data: { isActive: false },
+        });
+
+        return {
+          success: true,
+          archived: true,
+          id: bedId,
+          bedNumber: bed.bedNumber,
+          message: `Bed ${bed.bedNumber} was deleted. Past allocations were retained.`,
+          bed: deleted,
+        };
+      });
+    } catch (err: any) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException ||
+        err instanceof ServiceUnavailableException
+      ) {
+        throw err;
+      }
+      throw new BadRequestException(`Failed to delete bed: ${err.message || 'Database error'}`);
     }
   }
 }
