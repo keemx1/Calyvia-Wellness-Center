@@ -14,6 +14,11 @@ import {
 } from './dto/auth.dto';
 import { UserRole } from '@calyvia/shared';
 
+export interface LoginRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 @Injectable()
 export class SecurityService {
   constructor(
@@ -44,7 +49,71 @@ export class SecurityService {
     return secret;
   }
 
-  async login(loginDto: LoginDto) {
+  private async recordLoginAudit(data: {
+    outcome: 'SUCCESS' | 'FAILED';
+    email: string;
+    userId?: string;
+    role?: string;
+    reason?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    try {
+      if (this.prisma && (this.prisma as any).auditLog) {
+        await (this.prisma as any).auditLog.create({
+          data: {
+            userId: data.userId || null,
+            role: data.role || 'ANONYMOUS',
+            action: data.outcome === 'SUCCESS' ? 'LOGIN_SUCCESS' : 'LOGIN_FAILED',
+            resource: 'AUTH',
+            resourceId: data.email,
+            ipAddress: data.ipAddress || 'unknown',
+            userAgent: data.userAgent || 'unknown',
+            newValues: {
+              outcome: data.outcome,
+              attemptedAccount: data.email,
+              reason: data.reason || null,
+            },
+          },
+        });
+      }
+    } catch (err) {
+      // Auditing must never turn a successful login into a failure.
+      console.warn('Login audit record skipped:', (err as Error)?.message || err);
+    }
+  }
+
+  async login(loginDto: LoginDto, context: LoginRequestContext = {}) {
+    const attemptedAccount = loginDto.email?.toLowerCase() || 'unknown';
+    let resolvedUser: any = null;
+    try {
+      const result = await this.loginCore(loginDto, (user) => {
+        resolvedUser = user;
+      });
+      await this.recordLoginAudit({
+        outcome: 'SUCCESS',
+        email: attemptedAccount,
+        userId: resolvedUser?.id,
+        role: resolvedUser?.role,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+      return result;
+    } catch (err) {
+      await this.recordLoginAudit({
+        outcome: 'FAILED',
+        email: attemptedAccount,
+        userId: resolvedUser?.id,
+        role: resolvedUser?.role,
+        reason: (err as any)?.message || 'Authentication failed',
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+      throw err;
+    }
+  }
+
+  private async loginCore(loginDto: LoginDto, onUserResolved: (user: any) => void) {
     const { email, password } = loginDto;
 
     // Standard institutional credentials lookup in PostgreSQL public schema
@@ -63,6 +132,7 @@ export class SecurityService {
     }
 
     if (user) {
+      onUserResolved(user);
       let isValid = await this.verifyPassword(user.passwordHash, password);
       if (!isValid && SupabaseService.staticClient) {
         try {
@@ -140,6 +210,7 @@ export class SecurityService {
           mustChangePassword: false,
         },
       });
+      onUserResolved(user);
     }
 
     const payload = {

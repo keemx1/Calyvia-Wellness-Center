@@ -19,8 +19,9 @@ export class AuditController {
   async listLogs(
     @Query('resource') resource?: string,
     @Query('action') action?: string,
+    @Query('actorId') actorId?: string,
     @Query('limit') limit?: number,
   ) {
-    return this.auditService.getAuditLogs({ resource, action, limit });
+    return this.auditService.getAuditLogs({ resource, action, actorId, limit });
   }
 }

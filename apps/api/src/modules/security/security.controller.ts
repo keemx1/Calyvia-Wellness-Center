@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   Header,
+  Headers,
   Ip,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -52,10 +53,17 @@ export class SecurityController {
   @ApiResponse({ status: 200, description: 'JWT tokens and user profile returned' })
   @ApiResponse({ status: 401, description: 'Invalid credentials, account not authorized, or failed verification' })
   @ApiResponse({ status: 503, description: 'Turnstile verification is unavailable or misconfigured' })
-  async login(@Body() loginDto: LoginDto, @Ip() clientIp: string) {
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() clientIp: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
     // Verify the challenge before any credential check or token minting.
     await this.turnstileService.verify(loginDto.turnstileToken, clientIp);
-    return this.securityService.login(loginDto);
+    return this.securityService.login(
+      loginDto,
+      userAgent ? { ipAddress: clientIp, userAgent } : { ipAddress: clientIp },
+    );
   }
 
   @Post('request-access')

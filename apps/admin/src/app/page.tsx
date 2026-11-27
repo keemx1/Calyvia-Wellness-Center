@@ -79,6 +79,7 @@ import { AutomationView } from '../components/AutomationView';
 import { BillingView } from '../components/BillingView';
 import { PatientDashboardView } from '../components/PatientDashboardView';
 import { CmsManager } from '../components/CmsManager';
+import { AuditTrailView } from '../components/AuditTrailView';
 import { BottomNav } from '../components/BottomNav';
 
 const MODULE_TITLES: Record<string, string> = {
@@ -605,6 +606,8 @@ export default function AdminDashboardPage() {
   const [financialReport, setFinancialReport] = useState<any>(null);
   const [clinicalReport, setClinicalReport] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState<boolean>(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [facilityConfig, setFacilityConfig] = useState<any>(null);
 
   const formatReportRate = (value: unknown) =>
@@ -871,17 +874,21 @@ export default function AdminDashboardPage() {
 
   const fetchAuditLogs = useCallback(async () => {
     if (!token) return;
+    setAuditLoading(true);
+    setAuditError(null);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-      const res = await fetch(`${apiUrl}/audit-logs?limit=50`, {
+      const res = await fetch(`${apiUrl}/audit-logs?limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) setAuditLogs(data);
-      }
+      if (!res.ok) throw new Error(`Audit trail request failed (${res.status})`);
+      const data = await res.json();
+      if (Array.isArray(data)) setAuditLogs(data);
     } catch (err) {
       console.warn('Failed to fetch audit logs:', err);
+      setAuditError('Unable to load the audit trail. Please try again.');
+    } finally {
+      setAuditLoading(false);
     }
   }, [token]);
 
@@ -2770,80 +2777,14 @@ export default function AdminDashboardPage() {
 
           {/* Module: 24. Security & Audit Trail */}
           {activeModule === 'security' && (
-            <div className="space-y-6">
-              <div className="bg-card p-6 rounded-2xl border border-border shadow-card space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-serif text-xl font-bold text-foreground">Security & Audit Trail</h2>
-                    <p className="text-xs text-muted-foreground">Recorded access and data-modification events from the live audit log</p>
-                  </div>
-                  <span className="px-3 py-1 bg-primary-soft text-primary text-xs font-bold rounded-full">
-                    Live audit log
-                  </span>
-                </div>
-
-                {(user?.role === 'SUPER_ADMIN' || user?.role === 'FACILITY_ADMIN') && (
-                  <div className="p-4 rounded-xl bg-surface-subtle border border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-xl bg-primary-soft text-primary flex items-center justify-center flex-shrink-0">
-                        <Users className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-foreground">Personnel Credential & Access Management</div>
-                        <div className="text-[11px] text-muted-foreground">Provision staff accounts, assign login emails, allocate system roles, and revoke employee access.</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setActiveModule('staff')}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:bg-primary-hover transition-all self-start sm:self-auto shadow-xs"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>Manage Staff Accounts</span>
-                    </button>
-                  </div>
-                )}
-                <div className="overflow-x-auto rounded-xl border border-border mt-3">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-elevated text-muted-foreground uppercase text-[10px] tracking-wider font-semibold border-b border-border">
-                      <tr>
-                        <th className="px-4 py-3">Timestamp</th>
-                        <th className="px-4 py-3">Actor / User</th>
-                        <th className="px-4 py-3">Role</th>
-                        <th className="px-4 py-3">Action</th>
-                        <th className="px-4 py-3">Resource</th>
-                        <th className="px-4 py-3">Client IP</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {auditLogs.length > 0 ? (
-                        auditLogs.map((log: any) => (
-                          <tr key={log.id} className="hover:bg-surface-subtle transition-colors">
-                            <td className="px-4 py-3 font-mono text-[11px]">
-                              {log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-foreground">
-                              {log.user?.fullName || log.user?.email || 'System'}
-                            </td>
-                            <td className="px-4 py-3 text-secondary font-medium">
-                              {log.role || log.user?.role || '—'}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-primary font-bold">{log.action}</td>
-                            <td className="px-4 py-3 font-mono">{log.resource}</td>
-                            <td className="px-4 py-3 font-mono text-muted-foreground">{log.ipAddress || '—'}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                            No audit events recorded yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <AuditTrailView
+              logs={auditLogs}
+              loading={auditLoading}
+              error={auditError}
+              canManageStaff={user?.role === 'SUPER_ADMIN' || user?.role === 'FACILITY_ADMIN'}
+              onManageStaff={() => setActiveModule('staff')}
+              onRefresh={fetchAuditLogs}
+            />
           )}
 
           {/* Module: 25. System Administration & Institutional Settings */}

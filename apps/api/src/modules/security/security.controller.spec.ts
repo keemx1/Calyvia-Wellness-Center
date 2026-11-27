@@ -23,7 +23,7 @@ describe('SecurityController login Turnstile gate', () => {
     await controller.login(dto, '203.0.113.10');
 
     expect(turnstileService.verify).toHaveBeenCalledWith('turnstile-token', '203.0.113.10');
-    expect(securityService.login).toHaveBeenCalledWith(dto);
+    expect(securityService.login).toHaveBeenCalledWith(dto, { ipAddress: '203.0.113.10' });
     const verifyCall = (turnstileService.verify as jest.Mock).mock.invocationCallOrder[0];
     const loginCall = (securityService.login as jest.Mock).mock.invocationCallOrder[0];
     expect(verifyCall).toBeLessThan(loginCall);

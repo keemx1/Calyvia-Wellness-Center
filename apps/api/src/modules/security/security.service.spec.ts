@@ -85,6 +85,41 @@ describe('SecurityService (Authentication & Password Security)', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it('records a successful sign-in with the account and source context', async () => {
+    const rawPassword = 'ClinicalSecure#2026';
+    const hash = await service.hashPassword(rawPassword);
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'usr-audit-001',
+      email: 'jane.muthoni@calyviawellness.co.ke',
+      passwordHash: hash,
+      role: UserRole.NURSE,
+      fullName: 'Jane Muthoni',
+      isActive: true,
+      approvalStatus: 'APPROVED',
+      mustChangePassword: false,
+    });
+
+    await service.login(
+      {
+        email: 'jane.muthoni@calyviawellness.co.ke',
+        password: rawPassword,
+        turnstileToken: 'test-turnstile-token',
+      },
+      { ipAddress: '203.0.113.10', userAgent: 'Mozilla/5.0' },
+    );
+
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'LOGIN_SUCCESS',
+        resource: 'AUTH',
+        resourceId: 'jane.muthoni@calyviawellness.co.ke',
+        ipAddress: '203.0.113.10',
+        userAgent: 'Mozilla/5.0',
+      }),
+    });
+  }, 15000);
+
   it('should reject deactivated user accounts even with valid credentials', async () => {
     const rawPassword = 'ClinicalSecure#2026';
     const hash = await service.hashPassword(rawPassword);
