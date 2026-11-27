@@ -47,6 +47,7 @@ import { AutomationModule } from './modules/automation/automation.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SystemAdminModule } from './modules/system-admin/system-admin.module';
+import { CmsModule } from './modules/cms/cms.module';
 import * as path from 'path';
 
 @Module({
@@ -103,6 +104,7 @@ import * as path from 'path';
     DashboardModule,
     ReportsModule,
     SystemAdminModule,
+    CmsModule,
   ],
   controllers: [AppController],
   providers: [

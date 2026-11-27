@@ -63,7 +63,7 @@ The application codebase is structured as a TypeScript monorepo:
 | **25** | **System Admin** | `SystemSetting` | `GET /system-admin/facility-config`, `POST /system-admin/settings` | Implemented & Verified. Master facility configuration, parameter overrides. | Direct table with `SUPER_ADMIN` write protection. |
 | **26** | **Integrations** | `MpesaTransaction`, `Lead` | `POST /integrations/mpesa/callback`, `POST /integrations/webhook/website-lead` | Implemented & Verified. Safaricom Daraja STK webhook receiver, website lead hook. | Supabase Edge Functions with service-role database access. |
 | **27** | **Automation** | N/A | `POST /automation/jobs/vitals-monitor`, `POST /automation/jobs/aftercare-cadence` | Implemented & Verified. Scheduled maintenance and alert dispatch triggers. | Supabase `pg_cron` + scheduled database procedures. |
-| **28** | **Future AI Features** | N/A | None | Removed at client request; no AI endpoints or UI remain. | Not applicable. |
+| **28** | **Website Content (CMS)** | `cms_posts`, `published_cms_posts` view | `GET /cms/published` (public), `GET/POST/PATCH /cms/posts`, `POST /cms/posts/:id/publish`, `POST /cms/posts/:id/unpublish` | Implemented & Verified. Only PUBLISHED rows are readable by `anon`; publish triggers a Netlify rebuild. | Edge Function or scheduled job could mirror posts to another CDN if needed. |
 
 ---
 

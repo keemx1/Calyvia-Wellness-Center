@@ -78,6 +78,7 @@ import { RoomsView } from '../components/RoomsView';
 import { AutomationView } from '../components/AutomationView';
 import { BillingView } from '../components/BillingView';
 import { PatientDashboardView } from '../components/PatientDashboardView';
+import { CmsManager } from '../components/CmsManager';
 import { BottomNav } from '../components/BottomNav';
 
 const MODULE_TITLES: Record<string, string> = {
@@ -108,6 +109,7 @@ const MODULE_TITLES: Record<string, string> = {
   system_admin: 'Administration',
   integrations: 'Integrations & Webhooks',
   automation: 'Workflow Automation',
+  cms: 'Website Content',
 };
 
 export default function AdminDashboardPage() {
@@ -3118,6 +3120,9 @@ export default function AdminDashboardPage() {
               apiUrl={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}
             />
           )}
+
+          {/* Module: Public website content */}
+          {activeModule === 'cms' && <CmsManager />}
 
           {/* Fallback for completely unrecognized modules */}
           {!MODULE_TITLES[activeModule] && (

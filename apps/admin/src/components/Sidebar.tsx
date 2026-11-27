@@ -25,6 +25,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Pin,
+  Globe,
   LucideIcon,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
@@ -185,6 +186,11 @@ export const NAVIGATION_STRUCTURE: NavigationSection[] = [
           { id: 'integrations', name: 'Integrations & Webhooks' },
           { id: 'automation', name: 'Workflow Automation' },
         ],
+      },
+      {
+        id: 'cms',
+        name: 'Website Content',
+        icon: Globe,
       },
     ],
   },

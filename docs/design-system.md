@@ -146,19 +146,13 @@ This guarantees an elegant, reassuring, brand-coherent experience designed speci
 - **Accessibility:** Meets WCAG 2.1 AA standards for color contrast, full keyboard navigation (focus rings on `sage-400`), and screen-reader announcements on dynamic clinical alerts.
 
 ### 2. Public Site Protection & CMS Rendering Architecture
-The public marketing website (`https://calyviawellness.co.ke/`) is **strictly protected** and must never be redirected, replaced, or broken. The only permitted modification is rendering published CMS content (careers, blogs, news announcements, and designated editable sections).
+The public marketing website (`https://calyviawellness.co.ke/`) is **strictly protected** and must never be redirected, replaced, or broken. The implemented CMS adds routes for published careers, vlogs and announcements; all existing pages and branding remain unchanged.
 
-#### Strict Security Rules for Public Rendering:
-1. **Anon-Safe Public Views:** Public visitors (`anon` role) can **only** read from an isolated view:
-   ```sql
-   CREATE VIEW published_cms_posts AS
-     SELECT id, slug, title, summary, content_sanitized, featured_image_url, category, published_at, author_name
-     FROM cms_posts
-     WHERE status = 'PUBLISHED' AND published_at <= NOW();
-   ```
-2. **Drafts & Revisions Isolation:** All unpublished content (`DRAFT`, `IN_REVIEW`, `ARCHIVED`) and author notes have RLS policies set to **DENY** for the `anon` role. Leaking drafts to the public site is impossible.
-3. **XSS Sanitization:** Rich text generated in the staff portal editor is sanitized before persistence and before public rendering using strict DOMPurify rules (allowing only safe semantic HTML tags: `<p>`, `<h2>`, `<h3>`, `<ul>`, `<ol>`, `<li>`, `<blockquote>`, `<strong>`, `<em>`, `<a>`, `<img>`).
-4. **Storage Separation:** 
-   - Public CMS media is stored in `cms-public-media` bucket (read-only for `anon`).
-   - Patient charts, laboratory scans, and signed consent PDFs are stored in `patient-records-private` bucket (strictly forbidden to `anon` with signed URL tokens required).
+#### Implemented security rules for public rendering:
+1. **Anon-safe public view:** The `anon` role has no privileges on `cms_posts`. It can only `SELECT` from `published_cms_posts`, a security-barrier view that hard-filters `status = 'PUBLISHED'`, `published_at <= now()` and unexpired posts. Drafts and archived content cannot be selected.
+2. **Draft isolation:** `DRAFT`, `IN_REVIEW` and `ARCHIVED` posts are visible only through authenticated, role-gated staff API routes (`SUPER_ADMIN`, `FACILITY_ADMIN`, `MANAGEMENT_EXECUTIVE`).
+3. **No raw HTML:** Content is stored as structured blocks (`heading`, `paragraph`, `list`, `quote`). The API strips markup and control characters before persistence, and the website renders these values as React text nodes — never `dangerouslySetInnerHTML`. XSS through the editor is therefore not possible.
+4. **Video safety:** Vlog URLs are normalized server-side to `youtube-nocookie.com/embed/...` or `player.vimeo.com/video/...`. The website re-validates the host before rendering an iframe; arbitrary iframes are rejected.
+5. **Storage separation:** Public images use ordinary HTTPS URLs supplied in the CMS and are rendered as plain `<img>` tags. Patient charts, laboratory scans and signed consent PDFs remain in private storage with signed URLs and are never referenced by CMS posts.
+6. **Automatic publishing:** Publishing, updating a live post, or unpublishing calls a Netlify build hook (`NETLIFY_CMS_BUILD_HOOK_URL`, server-side secret only). The website's prebuild fetches `GET /cms/published` and generates static data plus sitemap entries. If the API is unreachable, the site still builds with an empty list rather than failing.
 

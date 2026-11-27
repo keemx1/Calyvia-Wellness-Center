@@ -40,7 +40,7 @@ flowchart TD
             APIGateway["NestJS API (apps/api) /api/v1<br/>Helmet • Rate Limiting • JWT • RBAC Guards • Audit Interceptor"]
         end
 
-        subgraph Core_Services["27 Modular Domain Engines"]
+        subgraph Core_Services["28 Modular Domain Engines"]
             direction TB
             M_Patients["Patient & Family Management"]
             M_CRM["CRM, Admissions & Referrals"]
@@ -92,7 +92,7 @@ The repository is structured as a TypeScript monorepo with strict package bounda
 │   │   │   │   └── utils/             # Phone normalizer (+254), Nairobi date helpers
 │   │   │   ├── config/                # App, Database, Redis, M-Pesa, AWS S3 configs
 │   │   │   ├── database/              # PrismaService, transaction managers, seed runner
-│   │   │   ├── modules/               # 27 dedicated NestJS domain modules
+│   │   │   ├── modules/               # 28 dedicated NestJS domain modules
 │   │   │   └── main.ts                # Bootstrap, Swagger docs, validation pipe, helmet
 │   │   ├── test/                      # End-to-end (e2e) Supertest suites
 │   │   └── Dockerfile
@@ -181,7 +181,7 @@ Every module is built as an independent, encapsulated NestJS module containing i
 | **25** | `SystemAdminModule` | System-wide configuration, program definition (e.g. 30/60/90 day rehab tracks), tariff/fee scheduling, ward/room setup, notification settings. | `SecurityModule`, `BillingModule`, `RoomsModule` |
 | **26** | `IntegrationsModule` | Public enquiry webhook receiver, Safaricom Daraja M-Pesa adapter, accounting export (QuickBooks/Xero format), external lab webhook stubs. | `CrmAdmissionsModule`, `BillingModule`, `CommunicationModule` |
 | **27** | `AutomationModule` | BullMQ queue orchestrator: scheduled reminders, vital sign overdue checks, MAR alerts, aftercare cadence dispatch, licence expiry warnings. | `CommunicationModule`, `TasksModule`, `DetoxModule`, `PharmacyModule` |
-| **28** | _Removed_ | AI extension module removed at client request; no AI UI, endpoints, or feature flag remain. | None |
+| **28** | `CmsModule` | Public website content: careers, vlogs and announcements. Structured blocks only, draft/publish workflow, anon-safe published view, and Netlify build-hook trigger on publish. | `SystemAdminModule`, `SecurityModule`, `PublishedCmsPosts` view |
 
 ```mermaid
 graph TD
@@ -222,6 +222,7 @@ graph TD
     Feedback["21. Feedback & Complaints"]:::outputs
     Dashboard["22. Management Dashboard"]:::outputs
     Reports["23. Reports & Analytics"]:::outputs
+    Cms["28. Website Content"]:::outputs
 
     Security --> Patients
     Security --> Billing
@@ -254,6 +255,7 @@ graph TD
     Rooms --> Dashboard
     Clinical --> Dashboard
     Clinical --> Reports
+    SysAdmin --> Cms
 ```
 
 ---
@@ -497,7 +499,7 @@ Background workers run asynchronously to prevent blocking HTTP endpoints:
 
 ### ADR-001: Modular Monolith vs Microservices for Calyvia HMIS
 - **Status:** APPROVED
-- **Context:** Calyvia has 27 functional domains. Microservices would introduce distributed transaction overhead, network latency for clinical vitals, and operational complexity.
+- **Context:** Calyvia has 28 functional domains. Microservices would introduce distributed transaction overhead, network latency for clinical vitals, and operational complexity.
 - **Decision:** Build a single NestJS application structured as 28 decoupled modules communicating through standard NestJS service injection and in-process TypeScript contracts, sharing a unified PostgreSQL transactional database and Redis queue.
 - **Consequences:** Low deployment footprint, atomic transactions for financial and bed allocation logic, simplified end-to-end testing, clear path to extract services if needed in the future.
 
@@ -585,6 +587,7 @@ Background workers run asynchronously to prevent blocking HTTP endpoints:
 - Module 22: Management Dashboard (Real-time clinical & financial KPIs, ward census)
 - Module 23: Reports & Analytics (Filterable PDF/CSV reports, MOH summaries)
 - Module 25: System Administration (Master settings, tariffs, program tracks)
+- Module 28: Website Content / CMS (Careers, vlogs, announcements, Netlify auto-publish)
 - Playwright E2E smoke tests for core patient journey (Enquiry → Admission → Bed → Invoice → Discharge)
 - Production Docker compose configuration & database backup/restore scripts
 - Comprehensive documentation and realistic demo seed data.

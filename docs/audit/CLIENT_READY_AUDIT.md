@@ -13,15 +13,15 @@ The system is **fundamentally functional** for the core clinical, admissions, bi
 
 The client-facing picture is now honest:
 
-- **Working:** authentication, patient registry, admissions intake, billing/invoices with the official letterhead, M-Pesa confirmation flow, ByteWave SMS, WhatsApp invoice PDFs, templates, reports, audit logs, facility config, and role-based navigation.
+- **Working:** authentication, patient registry, admissions intake, billing/invoices with the official letterhead, M-Pesa confirmation flow, ByteWave SMS, WhatsApp invoice PDFs, templates, reports, audit logs, facility config, role-based navigation, and website content publishing (careers, vlogs, announcements).
 - **Empty by design:** several modules returned empty arrays from production because no records have been entered yet. Empty is not the same as broken.
 - **Stubbed / not implemented:** automation scheduling, CIWA/COWS capture, clinical-outcome tracking, forced password-change enforcement, deep dependency health checks, and header alert feed are explicitly reported as unavailable rather than shown as successful.
 - **Dev/test only:** mock SMS and mock WhatsApp drivers remain in the codebase for tests but are blocked in production. Synthetic seed SQL is explicitly UAT/dev only.
 - **Unsafe/blocked:** M-Pesa credential rotation still needs confirmation and public write endpoints still need abuse controls before open launch. Production test/mock records have been deleted.
 
-All local validation passes: **20 test suites / 161 tests**, API build clean, admin TypeScript clean, admin production build clean, admin lint **0 errors**, API lint **0 errors**.
+All local validation passes: **21 test suites / 171 tests**, API build clean, admin TypeScript clean, admin production build clean, website type-check/lint/build clean, admin lint **0 errors**, API lint **0 errors**.
 
-**Current code is not yet deployed.** The latest fixes are committed locally but not pushed or redeployed. Do not hand over the new build until credential rotation and endpoint-abuse decisions below are closed.
+**Current code is not yet pushed or redeployed.** The CMS changes are committed locally only. The CMS migration must be applied in Supabase, the Netlify build hook configured in Coolify, and the website repo pushed before publishing is live (see `docs/CMS_PUBLISHING.md`). Do not hand over the new build until credential rotation and endpoint-abuse decisions below are closed.
 
 ---
 
@@ -46,6 +46,7 @@ All local validation passes: **20 test suites / 161 tests**, API build clean, ad
 | Documents | Sidebar submenu maps documents/discharge/aftercare to matching tab | `initialTab` wiring completed; fabricated doctor default removed. |
 | Appointments | Real booking errors surfaced; clinician select uses loaded staff | Static `Dr. Evelyn Wanjiku` default removed from booking UI. |
 | CRM / Clinical / Pharmacy | New Lead, Admit Patient, Append Clinical Note, and Issue Prescription now write through real APIs | Previously alert-only actions replaced with validated forms and real error handling. |
+| Website CMS | Staff portal creates/edits/publishes careers, vlogs and announcements; live site adds `/careers`, `/vlogs`, `/news` | Public API reads only `published_cms_posts`; no raw HTML or arbitrary iframes. Publish triggers Netlify rebuild. Setup in `docs/CMS_PUBLISHING.md`. |
 | Production walk-through | All sidebar modules opened without auth or API failures | 87 browser network requests, 64 API requests, `0` failed/4xx/5xx, `0` console errors. |
 
 ---
@@ -133,10 +134,11 @@ These features are now explicitly reported as unavailable rather than disguised 
 | :--- | :--- |
 | `npx tsc --noEmit -p apps/admin/tsconfig.json` | Pass |
 | `npm run build --workspace=@calyvia/api` | Pass |
-| `npm test --workspace=@calyvia/api -- --runInBand` | **20 suites / 161 tests passed** |
-| `npm run lint --workspace=@calyvia/admin` | **0 errors**, 6 warnings |
+| `npm test --workspace=@calyvia/api -- --runInBand` | **21 suites / 171 tests passed** |
+| `npm run lint --workspace=@calyvia/admin` | **0 errors**, warnings only |
 | `npm run build --workspace=@calyvia/admin` | Pass |
-| API ESLint | **0 errors**, 474 warnings |
+| API ESLint | **0 errors**, 497 warnings |
+| Website `npm run type-check` / `lint` / `build` | Pass (build falls back to empty CMS list when API unavailable) |
 | `git diff --check` | No whitespace errors (line-ending notices only) |
 
 ---
@@ -148,9 +150,13 @@ Before marking the new build client-ready:
 1. Obtain written confirmation that M-Pesa credentials were rotated in Daraja and updated only in Coolify.
 2. Confirm whether old JWT/encryption secrets also need rotation.
 3. Decide whether public feedback/website-lead endpoints need rate limiting before launch.
-4. Commit and push the working tree.
-5. Redeploy API and admin only after the above.
-6. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, and audit.
+4. Apply `supabase/sql/12_cms_public_content.sql` in Supabase.
+5. Set `NETLIFY_CMS_BUILD_HOOK_URL` in Coolify only; create the Netlify build hook for `calyvia-website`.
+6. Push and deploy the website repo changes (`keemx1/calyvia-website`) and confirm the new `/careers`, `/vlogs`, `/news` routes render.
+7. Commit and push the working tree.
+8. Redeploy API and admin only after the above.
+9. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, audit, and the CMS publish/unpublish flow in `docs/CMS_PUBLISHING.md`.
 
-**Current pushed baseline:** `3be3331`.  
-**Current state:** newer fixes and test-data cleanup are committed locally; not pushed or redeployed.
+**Current pushed baseline:** `2232a3e` (last pushed commit).
+
+**Current state:** CMS fixes are local; not pushed or redeployed.

@@ -135,6 +135,20 @@ export enum CommunicationChannel {
   EMAIL = 'EMAIL',
 }
 
+/** Public website content categories managed from the staff portal. */
+export enum CmsPostType {
+  CAREER = 'CAREER',
+  VLOG = 'VLOG',
+  ANNOUNCEMENT = 'ANNOUNCEMENT',
+}
+
+export enum CmsPostStatus {
+  DRAFT = 'DRAFT',
+  IN_REVIEW = 'IN_REVIEW',
+  PUBLISHED = 'PUBLISHED',
+  ARCHIVED = 'ARCHIVED',
+}
+
 export enum LeadStatus {
   NEW_INQUIRY = 'NEW_INQUIRY',
   CONTACTED = 'CONTACTED',
@@ -240,6 +254,7 @@ export enum Permission {
   SECURITY_AUDIT_VIEW = 'security.audit.view',
   SYSTEM_SETTINGS_MANAGE = 'system_settings.manage',
   INTEGRATIONS_MANAGE = 'integrations.manage',
+  CMS_MANAGE = 'cms.manage',
 }
 
 export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
@@ -262,13 +277,13 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, string[]> = {
     'clinical', 'detox', 'counselling', 'appointments', 'pharmacy', 'rooms',
     'billing', 'movement', 'incidents', 'staff', 'tasks', 'inventory',
     'discharge', 'aftercare', 'communication', 'feedback',
-    'security', 'system_admin', 'integrations', 'automation'
+    'security', 'system_admin', 'integrations', 'automation', 'cms'
   ],
   [UserRole.FACILITY_ADMIN]: [
     'dashboard', 'reports', 'patients', 'crm', 'family', 'referrals', 'documents',
     'billing', 'movement', 'incidents', 'staff', 'tasks', 'inventory',
     'discharge', 'aftercare', 'communication', 'feedback',
-    'security', 'system_admin', 'integrations', 'automation'
+    'security', 'system_admin', 'integrations', 'automation', 'cms'
   ],
   [UserRole.MEDICAL_DIRECTOR]: [
     'dashboard', 'reports', 'patients', 'clinical', 'detox', 'counselling',
@@ -304,7 +319,7 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, string[]> = {
     'inventory', 'pharmacy', 'tasks'
   ],
   [UserRole.MANAGEMENT_EXECUTIVE]: [
-    'dashboard', 'reports', 'crm', 'billing', 'feedback', 'incidents'
+    'dashboard', 'reports', 'crm', 'billing', 'feedback', 'incidents', 'cms'
   ],
 };
 
@@ -318,7 +333,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.MOVEMENT_LOG_MANAGE, Permission.INCIDENTS_MANAGE, Permission.STAFF_VIEW, Permission.STAFF_MANAGE,
     Permission.TASKS_MANAGE, Permission.INVENTORY_MANAGE, Permission.DISCHARGE_MANAGE, Permission.AFTERCARE_MANAGE,
     Permission.COMMUNICATION_MANAGE, Permission.FEEDBACK_MANAGE, Permission.SECURITY_AUDIT_VIEW,
-    Permission.SYSTEM_SETTINGS_MANAGE, Permission.INTEGRATIONS_MANAGE,
+    Permission.SYSTEM_SETTINGS_MANAGE, Permission.INTEGRATIONS_MANAGE, Permission.CMS_MANAGE,
   ],
   [UserRole.MEDICAL_DIRECTOR]: [
     Permission.DASHBOARD_VIEW, Permission.REPORTS_CLINICAL_VIEW, Permission.REPORTS_EXECUTIVE_VIEW,
@@ -366,7 +381,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.MANAGEMENT_EXECUTIVE]: [
     Permission.DASHBOARD_VIEW, Permission.REPORTS_EXECUTIVE_VIEW, Permission.REPORTS_FINANCIAL_VIEW,
     Permission.REPORTS_CLINICAL_VIEW, Permission.CRM_LEADS_MANAGE, Permission.BILLING_VIEW,
-    Permission.FEEDBACK_MANAGE, Permission.INCIDENTS_MANAGE,
+    Permission.FEEDBACK_MANAGE, Permission.INCIDENTS_MANAGE, Permission.CMS_MANAGE,
   ],
 };
 
