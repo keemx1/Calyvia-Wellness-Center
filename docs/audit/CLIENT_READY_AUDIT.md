@@ -17,11 +17,11 @@ The client-facing picture is now honest:
 - **Empty by design:** several modules returned empty arrays from production because no records have been entered yet. Empty is not the same as broken.
 - **Stubbed / not implemented:** automation scheduling, CIWA/COWS capture, clinical-outcome tracking, forced password-change enforcement, deep dependency health checks, and header alert feed are explicitly reported as unavailable rather than shown as successful.
 - **Dev/test only:** mock SMS and mock WhatsApp drivers remain in the codebase for tests but are blocked in production. Synthetic seed SQL is explicitly UAT/dev only.
-- **Unsafe/blocked:** M-Pesa credential rotation still needs confirmation and public write endpoints still need abuse controls before open launch. Production test/mock records have been deleted.
+- **Unsafe/blocked:** public write endpoints still need abuse controls before open launch. M-Pesa and JWT/encryption secrets were confirmed rotated by the client and updated only in Coolify. Production test/mock records have been deleted.
 
 All local validation passes: **21 test suites / 171 tests**, API build clean, admin TypeScript clean, admin production build clean, website type-check/lint/build clean, admin lint **0 errors**, API lint **0 errors**.
 
-**Current code is not yet pushed or redeployed.** The CMS changes are committed locally only. The CMS migration must be applied in Supabase, the Netlify build hook configured in Coolify, and the website repo pushed before publishing is live (see `docs/CMS_PUBLISHING.md`). Do not hand over the new build until credential rotation and endpoint-abuse decisions below are closed.
+**Current code is pushed but not redeployed.** The CMS changes exist in both `origin/main` (management) and `origin/master` (website). The CMS migration must still be applied in Supabase and the Netlify build hook configured in Coolify before publishing is live (see `docs/CMS_PUBLISHING.md`). Do not hand over the new build until the endpoint-abuse decision below is closed.
 
 ---
 
@@ -101,8 +101,8 @@ These features are now explicitly reported as unavailable rather than disguised 
 
 ## 6. Unsafe / blocked before client handover
 
-1. **M-Pesa credential rotation — outstanding.** The consumer key, consumer secret, and passkey were previously exposed. Confirm they were rotated in Daraja and that only the new values exist in Coolify. The tracked `coolify.env` template has been sanitized; no secret values are committed.
-2. **JWT/encryption secrets in the old deployment template — sanitized, rotation recommended.** The tracked template previously contained real-looking JWT and encryption secrets. It now contains placeholders only. If any of those values were ever used in production, rotate them in Coolify.
+1. **M-Pesa credential rotation — confirmed by client (2026-11-27).** The previously exposed consumer key, consumer secret and passkey were rotated in Daraja and only the new values exist in Coolify. The tracked `coolify.env` template is sanitized; no secret values are committed.
+2. **JWT/encryption secrets — rotation confirmed by client (2026-11-27).** The tracked template contains placeholders only, and the previously exposed values were rotated in Coolify.
 3. **Public write endpoints need abuse controls.** `/feedback/surveys` and `/integrations/webhook/website-lead` accept anonymous writes with no rate limiting or CAPTCHA. Add controls before public promotion.
 4. **Admin API URL fallback.** Client code still defaults to `http://localhost:4000/api/v1` when `NEXT_PUBLIC_API_URL` is missing. Production builds must set this variable; otherwise requests will misroute.
 5. **Baileys risk.** WhatsApp automation uses an unofficial WhatsApp Web client and can result in number bans. This is a business risk, not a code defect.
@@ -147,16 +147,15 @@ These features are now explicitly reported as unavailable rather than disguised 
 
 Before marking the new build client-ready:
 
-1. Obtain written confirmation that M-Pesa credentials were rotated in Daraja and updated only in Coolify.
-2. Confirm whether old JWT/encryption secrets also need rotation.
+1. ~~Obtain written confirmation that M-Pesa credentials were rotated in Daraja and updated only in Coolify.~~ Confirmed 2026-11-27.
+2. ~~Confirm whether old JWT/encryption secrets also need rotation.~~ Rotation confirmed 2026-11-27.
 3. Decide whether public feedback/website-lead endpoints need rate limiting before launch.
 4. Apply `supabase/sql/12_cms_public_content.sql` in Supabase.
 5. Set `NETLIFY_CMS_BUILD_HOOK_URL` in Coolify only; create the Netlify build hook for `calyvia-website`.
-6. Push and deploy the website repo changes (`keemx1/calyvia-website`) and confirm the new `/careers`, `/vlogs`, `/news` routes render.
-7. Commit and push the working tree.
-8. Redeploy API and admin only after the above.
-9. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, audit, and the CMS publish/unpublish flow in `docs/CMS_PUBLISHING.md`.
+6. Confirm the website rebuild completed and the new `/careers`, `/vlogs`, `/news` routes render (website commit `51333b2` is pushed).
+7. Redeploy API and admin with the CMS code.
+8. Re-run the read-only production smoke test after deployment: login, `/auth/me`, dashboard, patients, billing, communication, reports, audit, and the CMS publish/unpublish flow in `docs/CMS_PUBLISHING.md`.
 
-**Current pushed baseline:** `2232a3e` (last pushed commit).
+**Current pushed baseline:** the CMS commits on management `main` and website `master`.
 
-**Current state:** CMS fixes are local; not pushed or redeployed.
+**Current state:** code pushed; database migration, build hook and redeploy still outstanding.
